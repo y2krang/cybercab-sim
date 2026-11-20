@@ -1,0 +1,3 @@
+name,address,lat,lng,charge_bays,clean_bays,label,source
+Ben White hub,"5900 East Ben White Boulevard, Austin TX",30.214166,-97.718806,24,4,estimate,Spec section 4; location from OpenStreetMap address
+Ridgepoint hub,"2323 Ridgepoint Drive, Austin TX",30.328702,-97.674832,24,4,estimate,Spec section 4; location from OpenStreetMap address

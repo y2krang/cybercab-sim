@@ -1,0 +1,5 @@
+key,value,unit,label,source
+census_2020_population,1290188,people,fact,US Census 2020 (Travis County P1 total)
+registered_vehicles,1000000,vehicles,estimate,"Texas DMV registrations, Travis County (~1.0 million, rounded)"
+vehicles_for_5plus_households,5,vehicles per household,estimate,ACS B25044 top band is '5 or more'; counted as 5
+h3_resolution,8,level,fact,Spec section 1 (~0.28 sq mi hexes)

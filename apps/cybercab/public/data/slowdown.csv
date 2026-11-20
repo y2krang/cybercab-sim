@@ -1,0 +1,19 @@
+key,value,unit,label,source
+weekday_00_06,1.0,travel time multiplier,estimate,Spec section 5 (FHWA/INRIX/TomTom Austin)
+weekday_06_07,1.15,travel time multiplier,estimate,Spec section 5
+weekday_07_09,1.5,travel time multiplier,estimate,Spec section 5
+weekday_09_16,1.2,travel time multiplier,estimate,Spec section 5
+weekday_16_19,1.8,travel time multiplier,estimate,Spec section 5
+weekday_19_22,1.15,travel time multiplier,estimate,Spec section 5
+weekday_22_24,1.0,travel time multiplier,estimate,Spec section 5
+weekend_10_20,1.1,travel time multiplier,estimate,Spec section 5
+weekend_other,1.0,travel time multiplier,estimate,Spec section 5
+share_motorway,1.0,share of extra delay,estimate,Spec section 5 (full extra delay)
+share_trunk,1.0,share of extra delay,estimate,Not in spec: main roads treated like motorways
+share_primary,1.0,share of extra delay,estimate,Not in spec: main roads treated like motorways
+share_secondary,1.0,share of extra delay,estimate,Not in spec: main roads treated like motorways
+share_tertiary,1.0,share of extra delay,estimate,Not in spec: main roads treated like motorways
+share_residential,0.5,share of extra delay,estimate,Spec section 5 (half the extra delay)
+share_service,0.5,share of extra delay,estimate,Not in spec: local roads treated like residential
+share_unclassified,0.5,share of extra delay,estimate,Not in spec: local roads treated like residential
+share_living_street,0.5,share of extra delay,estimate,Not in spec: local roads treated like residential

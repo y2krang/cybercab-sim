@@ -1,0 +1,29 @@
+{
+  "name": "cybercab-sim",
+  "version": "0.3.0",
+  "description": "Unofficial Cybercab robotaxi fleet simulator for Austin (Travis County)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deck.gl/core": "^9.4.1",
+    "@deck.gl/geo-layers": "^9.4.1",
+    "@deck.gl/layers": "^9.4.1",
+    "@deck.gl/mapbox": "^9.4.1",
+    "@protomaps/basemaps": "^5.7.2",
+    "h3-js": "^4.5.0",
+    "maplibre-gl": "^6.19.0",
+    "pmtiles": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

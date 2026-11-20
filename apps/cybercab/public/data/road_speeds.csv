@@ -1,0 +1,12 @@
+key,value,unit,label,source
+motorway,65,mph,estimate,Spec section 5 (used when a road has no maxspeed tag)
+trunk,55,mph,estimate,Spec section 5
+primary,45,mph,estimate,Spec section 5
+secondary,40,mph,estimate,Spec section 5
+tertiary,35,mph,estimate,Spec section 5
+residential,25,mph,estimate,Spec section 5
+service,15,mph,estimate,Spec section 5
+unclassified,30,mph,estimate,"Owner's call (2026-11-20): Texas default for unmarked streets; mostly minor through-roads in the outskirts"
+living_street,15,mph,estimate,Owner's call (2026-11-20)
+junction_factor,0.85,multiplier,estimate,Spec section 5 (junctions and lights)
+max_speed,85,mph,estimate,Spec section 3

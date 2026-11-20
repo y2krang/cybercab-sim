@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Base map tiles (~tens of MB): rebuild with scripts/cybercab/tiles.py
+public/tiles/

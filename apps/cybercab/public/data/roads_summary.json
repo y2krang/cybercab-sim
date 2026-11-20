@@ -1,0 +1,32 @@
+{
+  "junctions_total": 150412,
+  "junctions_kept": 145289,
+  "edges_total": 352200,
+  "edges_kept": 344994,
+  "connected_parts": 2289,
+  "road_miles": {
+    "motorway": 613,
+    "trunk": 184,
+    "primary": 217,
+    "secondary": 996,
+    "tertiary": 1161,
+    "residential": 5430,
+    "service": 3385,
+    "unclassified": 304,
+    "living_street": 2
+  },
+  "road_miles_total": 12292,
+  "dropped_unconnected_miles": {
+    "motorway": 25.6,
+    "trunk": 3.2,
+    "primary": 0.2,
+    "secondary": 5.8,
+    "tertiary": 1.2,
+    "residential": 48.2,
+    "service": 172.7,
+    "unclassified": 3.7,
+    "living_street": 0.1
+  },
+  "share_with_speed_tag": 0.203,
+  "seconds": 170
+}

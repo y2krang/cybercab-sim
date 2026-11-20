@@ -1,0 +1,11 @@
+from,from_lat,from_lng,to,to_lat,to_lng,offpeak_min,rush_min,label,source
+Airport (AUS),30.1975,-97.6664,Downtown (Congress & 6th),30.2682,-97.7429,14,24,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+UT Austin,30.2862,-97.7394,The Domain,30.4021,-97.7253,17,30,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Downtown (Congress & 6th),30.2682,-97.7429,The Domain,30.4021,-97.7253,17,32,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Downtown (Congress & 6th),30.2682,-97.7429,Pflugerville,30.4394,-97.6200,22,36,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Downtown (Congress & 6th),30.2682,-97.7429,Lakeway,30.3638,-97.9797,28,45,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Downtown (Congress & 6th),30.2682,-97.7429,Circuit of the Americas,30.1346,-97.6359,20,32,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Airport (AUS),30.1975,-97.6664,The Domain,30.4021,-97.7253,23,40,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Zilker Park,30.2669,-97.7729,Mueller,30.2981,-97.7044,14,25,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Downtown (Congress & 6th),30.2682,-97.7429,Manor,30.3408,-97.5569,22,35,estimate,Typical map-app drive time (Claude's estimate; owner to check)
+Slaughter Ln & MoPac,30.1810,-97.8420,Downtown (Congress & 6th),30.2682,-97.7429,18,32,estimate,Typical map-app drive time (Claude's estimate; owner to check)

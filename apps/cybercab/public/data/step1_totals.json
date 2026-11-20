@@ -1,0 +1,28 @@
+{
+  "hexes": 3209,
+  "people": {
+    "hexes": 1290188,
+    "census_blocks": 1290188,
+    "census_published": 1290188
+  },
+  "jobs": {
+    "hexes": 910307,
+    "lodes_county": 910307
+  },
+  "workers": {
+    "hexes": 630567,
+    "lodes_county": 630567
+  },
+  "cars": {
+    "hexes_acs": 992183,
+    "acs_county": 992183,
+    "hexes_scaled": 1000002,
+    "registered_target": 1000000
+  },
+  "work_flows": {
+    "pairs": 191863,
+    "workers_in_county": 428303,
+    "workers_commuting_in": 475029
+  },
+  "county_area_sq_mi": 1025.0
+}

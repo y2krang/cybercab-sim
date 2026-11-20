@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Cybercab sim · Austin</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <header class="panel top">
+    <h1>Cybercab sim <span>Austin · Travis County</span></h1>
+    <div class="buttons" role="group" aria-label="Shade hexagons by">
+      <button data-metric="people" class="on">People</button>
+      <button data-metric="jobs">Jobs</button>
+      <button data-metric="cars">Cars</button>
+      <button data-metric="none">Off</button>
+    </div>
+  </header>
+
+  <aside class="panel legend" id="legend">
+    <div class="ramp-title" id="ramp-title">People per hexagon</div>
+    <div class="ramp"></div>
+    <div class="ramp-labels"><span id="ramp-lo">0</span><span id="ramp-hi"></span></div>
+    <div class="key"><span class="hub-dot"></span>Charging and cleaning hub</div>
+    <div class="key"><span class="county-line"></span>Travis County</div>
+  </aside>
+
+  <div class="panel status" id="status">Loading…</div>
+
+  <footer class="panel foot">
+    Unofficial simulation. Numbers are estimates. · © OpenStreetMap contributors · US Census
+  </footer>
+
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
