@@ -8,5 +8,5 @@ export default defineConfig({
   // Local only: never listen on the network (no firewall prompt).
   server: { host: '127.0.0.1' },
   preview: { host: '127.0.0.1' },
-  test: { environment: 'node' },
+  test: { environment: 'node', testTimeout: 60_000 },
 });

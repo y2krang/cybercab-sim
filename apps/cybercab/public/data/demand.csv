@@ -1,0 +1,19 @@
+key,value,unit,label,source
+trips_per_person_weekday,3.0,car trips per person per day,estimate,Spec section 6 (US household travel survey)
+trips_per_person_weekend,2.5,car trips per person per day,estimate,Spec section 6
+purpose_home_work,0.2,share of trips,estimate,Not in spec: typical US split (NHTS); home to work and back
+purpose_home_other,0.5,share of trips,estimate,Not in spec: typical US split (NHTS); home to shops etc. and back
+purpose_other_other,0.3,share of trips,estimate,Not in spec: typical US split (NHTS); neither end at home
+from_home_morning,0.7,share of home-other trips before 12:00 that leave home,estimate,Not in spec
+from_home_evening,0.3,share of home-other trips from 15:00 that leave home,estimate,Not in spec
+party_1,0.75,share of requests,estimate,Spec section 6
+party_2,0.2,share of requests,estimate,Spec section 6
+party_3_4,0.05,share of requests (needs two cabs),estimate,Spec section 6
+party_4_of_3_4,0.5,share of 3-4 parties that are 4 people,estimate,Not in spec
+patience_min,12,minutes,estimate,Spec section 6 (rider gives up: lost trip)
+gravity_min_time_s,60,seconds,estimate,Not in spec: floor on travel time in the gravity rule
+nightlife_extra,0.15,extra share of trips,estimate,"Not in spec: Fri/Sat 22:00-02:00 extra trips to (before midnight) or from (after) 6th Street and Rainey Street"
+nightlife_radius_m,800,metres,estimate,Not in spec: area counted as 6th Street / Rainey Street
+dispatch_interval_s,5,seconds,estimate,Spec section 8
+red_finish_window_min,3,minutes,estimate,Spec section 8 (red cabs finishing within 3 min can take the next rider)
+sample_above_cabs,20000,cabs,estimate,Spec section 8 (1-in-N sampling above this)

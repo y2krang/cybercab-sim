@@ -1,0 +1,11 @@
+key,value,unit,label,source
+fleet_0.1,0.01,share of car trips by Cybercab,estimate,Plan section 6 (0.1% fleet: ~1% of trips)
+fleet_0.2,0.02,share of car trips by Cybercab,estimate,Interpolated
+fleet_0.5,0.05,share of car trips by Cybercab,estimate,Interpolated
+fleet_1,0.1,share of car trips by Cybercab,estimate,Interpolated
+fleet_2,0.18,share of car trips by Cybercab,estimate,Interpolated
+fleet_5,0.38,share of car trips by Cybercab,estimate,Interpolated
+fleet_10,0.6,share of car trips by Cybercab,estimate,Plan section 6 (10% fleet: ~60% of trips)
+fleet_20,0.78,share of car trips by Cybercab,estimate,Interpolated
+fleet_50,0.93,share of car trips by Cybercab,estimate,Interpolated
+fleet_100,1.0,share of car trips by Cybercab,estimate,Plan section 6 (100% fleet: all trips)
