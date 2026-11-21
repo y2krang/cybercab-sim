@@ -78,7 +78,7 @@ export function runSweep(world: World, base: { seed: number; startDay: number; c
   const rows: SweepRow[] = [];
   for (const fleetPct of steps) {
     const t0 = performance.now();
-    const { sampleN } = samplingFor(world, fleetPct);
+    const { sampleN, fullFleet } = samplingFor(world, fleetPct);
     const sim = new Simulation(world, {
       seed: base.seed, fleetPct, startDay: base.startDay, sampleN, rebalancing: base.rebalancing,
       cabShare: base.cabShare ?? undefined,
@@ -93,7 +93,7 @@ export function runSweep(world: World, base: { seed: number; startDay: number; c
       if (rep.hexAvgWithLostMin[h] >= SWEEP_LIMIT_MIN) over++;
     }
     const row: SweepRow = {
-      fleetPct, cabs: sim.nCabs * sampleN, sampleN, avgWaitMin: rep.avgWaitMin,
+      fleetPct, cabs: fullFleet, sampleN, avgWaitMin: rep.avgWaitMin,
       lostPct: rep.requests ? (100 * rep.lost) / rep.requests : 0,
       hexesWithDemand: withDemand, hexesOver5: over, seconds: (performance.now() - t0) / 1000,
     };

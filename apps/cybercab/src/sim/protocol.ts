@@ -39,6 +39,8 @@ export interface ScheduledEvent {
 export type ToWorker =
   | { type: 'events'; events: EventDef[] }
   | { type: 'heat'; on: boolean }
+  /** The page has drawn the last frame: the worker may send the next. */
+  | { type: 'ack' }
   | { type: 'report' }
   | { type: 'sweep'; settings: RunSettings; rebalancing: boolean; events: EventDef[]; steps: number[] }
   | { type: 'init'; base: string }

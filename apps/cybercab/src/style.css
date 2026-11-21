@@ -11,7 +11,26 @@
   --controls-h: 150px;
 }
 
+:root[data-theme="light"] {
+  --bg: #f3f1ec;
+  --panel: rgba(255, 255, 255, 0.92);
+  --text: #1f2328;
+  --muted: #57606a;
+  --accent: #1f6feb;
+  --line: rgba(0, 0, 0, 0.14);
+  --hub: #1f2328;
+}
+:root[data-theme="light"] .hub-dot { background: #ffffff; }
+:root[data-theme="light"] .buttons button, :root[data-theme="light"] button.plain { background: rgba(0, 0, 0, 0.04); }
+:root[data-theme="light"] .buttons button.on, :root[data-theme="light"] button.big {
+  background: var(--accent); border-color: var(--accent); color: #ffffff; }
+:root[data-theme="light"] .field input, :root[data-theme="light"] .field select { background: #ffffff; }
+:root[data-theme="light"] button.toggle.on { color: #6b21a8; background: rgba(168, 85, 247, 0.12); }
+:root[data-theme="light"] #report-chart line { stroke: rgba(0, 0, 0, 0.1); }
+
 * { box-sizing: border-box; }
+.theme-btn { margin-left: 8px; min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; font-size: 13px; font-weight: 600; vertical-align: middle; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   font: 15px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden;
   -webkit-text-size-adjust: 100%; }

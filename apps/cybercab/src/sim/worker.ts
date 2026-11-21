@@ -12,7 +12,7 @@ import { dayReport, runSweep, samplingFor } from './report';
 // Positions are sent ~30 times a second and drawn as they are (no sliding in
 // between on the page), so every dot is always on its road route.
 const FRAME_MS = 33;
-const LIVE_EVERY = 8; // frames
+const LIVE_MS = 250; // live numbers 4 times a second, whatever the frame rate
 const MAX_TICKS_PER_FRAME = 400;
 
 let world: World | null = null;
@@ -22,12 +22,16 @@ let playing = false;
 let speed = 60;
 let clock = 0;          // smooth simulated time for drawing (sim.now steps in 5 s)
 let lastReal = performance.now();
-let frameNo = 0;
+let lastLive = 0;
 let realSpeed = 0;
 let dirty = false;      // something changed while paused: send one frame
 let rebalanceOn = true; // switch on the page (R6), kept across restarts
 let eventDefs: EventDef[] = []; // events chosen on the page (R7), kept across restarts
 let heatOn = false;     // wait heat map (R9) shown on the page
+// Back-pressure: send the next frame only once the page has drawn the last one,
+// so a slow device never builds up a queue of old frames.
+let awaitingAck = false;
+let ackAt = 0;
 let reportedDay = 0;    // end-of-day reports sent so far (R10)
 let scheduled = new Map<string, SimEvent>(); // key -> event placed in this run
 
@@ -73,6 +77,7 @@ function start(settings: RunSettings) {
   });
   tracker = new PositionTracker(world, sim.nCabs, settings.seed);
   clock = 0;
+  awaitingAck = false;
   scheduled = new Map();
   applyEvents();
   const w = world;
@@ -94,6 +99,10 @@ function start(settings: RunSettings) {
 
 function sendFrame() {
   if (!sim || !tracker) return;
+  // Waiting for the page; resend anyway after 2 s in case an ack was lost.
+  if (awaitingAck && performance.now() - ackAt < 2000) { dirty = true; return; }
+  awaitingAck = true;
+  ackAt = performance.now();
   const positions = new Float32Array(sim.nCabs * 2);
   tracker.fill(sim, clock, positions);
   const states = sim.state.slice();
@@ -130,11 +139,11 @@ function loop() {
     }
   } else {
     realSpeed = 0;
-    if (!dirty) return;
   }
+  if (playing && nowReal - lastLive >= LIVE_MS) { lastLive = nowReal; sendLive(); }
+  if (!playing && !dirty) return;
   dirty = false;
-  sendFrame();
-  if (++frameNo % LIVE_EVERY === 0) sendLive();
+  sendFrame(); // may set dirty again if the page hasn't drawn the last frame yet
 }
 
 self.onmessage = async (e: MessageEvent<ToWorker>) => {
@@ -159,6 +168,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       lastReal = performance.now();
     } else if (m.type === 'speed') {
       speed = m.speed;
+    } else if (m.type === 'ack') {
+      awaitingAck = false;
     } else if (m.type === 'heat') {
       heatOn = m.on;
       if (heatOn) sendLive();

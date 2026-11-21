@@ -21,6 +21,22 @@ const BASE = import.meta.env.BASE_URL;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
 
+// ---- theme (dark by default, light switch; remembered on this device) ------
+
+type Theme = 'dark' | 'light';
+let theme: Theme = 'dark';
+try { if (localStorage.getItem('cybercab-theme') === 'light') theme = 'light'; } catch { /* storage blocked: stay dark */ }
+document.documentElement.dataset.theme = theme;
+
+/** Marker colours that read well on each theme. */
+function pal() {
+  return theme === 'dark'
+    ? { hubFill: [11, 13, 16, 255], hubLine: [255, 255, 255, 255], text: [255, 255, 255, 255], halo: [11, 13, 16, 255],
+      county: [159, 180, 200, 200], eventText: [253, 186, 116, 255] }
+    : { hubFill: [255, 255, 255, 255], hubLine: [31, 35, 40, 255], text: [31, 35, 40, 255], halo: [255, 255, 255, 255],
+      county: [70, 90, 115, 220], eventText: [194, 65, 12, 255] };
+}
+
 // ---- map ------------------------------------------------------------------
 
 maplibregl.setWorkerUrl(workerUrl);
@@ -29,7 +45,7 @@ maplibregl.addProtocol('pmtiles', protocol.tile);
 
 const map = new maplibregl.Map({
   container: 'map',
-  style: basemapStyle('dark', BASE),
+  style: basemapStyle(theme, BASE),
   center: [-97.76, 30.33],
   zoom: 9.4,
   minZoom: 8,
@@ -63,6 +79,7 @@ let shownPos: Float32Array = new Float32Array(0);
 let colours = new Uint8Array(0);
 let cabCount = 0;
 let dotsChanged = true;
+let frameWaiting = false; // a frame from the worker is waiting to be drawn (then acknowledged)
 
 // ---- worker ---------------------------------------------------------------
 
@@ -126,6 +143,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     case 'frame':
       shownPos = m.positions;
       dotsChanged = true;
+      frameWaiting = true;
       colours = new Uint8Array(m.states.length * 4);
       for (let i = 0; i < m.states.length; i++) {
         const c = STATE_COLOURS[m.states[i]];
@@ -193,12 +211,13 @@ function buildStaticLayers() {
     }),
     new GeoJsonLayer({
       id: 'county', data: county as never, filled: false, stroked: true,
-      getLineColor: [159, 180, 200, 200], lineWidthMinPixels: 2,
+      getLineColor: pal().county as never, lineWidthMinPixels: 2, updateTriggers: { getLineColor: [theme] },
     }),
     new ScatterplotLayer<HubInfo>({
       id: 'hubs', data: hubs, getPosition: (d) => [d.lng, d.lat],
       getRadius: (d) => (d.auto ? 6 : 9), radiusUnits: 'pixels',
-      getFillColor: [11, 13, 16, 255], getLineColor: [255, 255, 255, 255],
+      getFillColor: pal().hubFill as never, getLineColor: pal().hubLine as never,
+      updateTriggers: { getFillColor: [theme], getLineColor: [theme] },
       lineWidthMinPixels: 2.5, stroked: true, pickable: true,
     }),
     new ScatterplotLayer<ScheduledEvent>({
@@ -209,14 +228,14 @@ function buildStaticLayers() {
     new TextLayer<ScheduledEvent>({
       id: 'event-names', data: eventMarkers, getPosition: (d) => [d.lng, d.lat],
       getText: (d) => `${d.name} ${clockText(startDay, d.startT).slice(4)}–${clockText(startDay, d.endT).slice(4)}`,
-      getSize: 13, getColor: [253, 186, 116, 255], getPixelOffset: [0, 24],
-      outlineWidth: 3, outlineColor: [11, 13, 16, 255], fontSettings: { sdf: true },
+      getSize: 13, getColor: pal().eventText as never, getPixelOffset: [0, 24],
+      outlineWidth: 3, outlineColor: pal().halo as never, fontSettings: { sdf: true }, updateTriggers: { getColor: [theme] },
       fontFamily: 'system-ui, sans-serif', fontWeight: 700,
     }),
     new TextLayer<HubInfo>({
       id: 'hub-names', data: hubs.filter((h) => !h.auto), getPosition: (d) => [d.lng, d.lat],
-      getText: (d) => d.name, getSize: 13, getColor: [255, 255, 255, 255], getPixelOffset: [0, -20],
-      outlineWidth: 3, outlineColor: [11, 13, 16, 255], fontSettings: { sdf: true },
+      getText: (d) => d.name, getSize: 13, getColor: pal().text as never, getPixelOffset: [0, -20],
+      outlineWidth: 3, outlineColor: pal().halo as never, fontSettings: { sdf: true }, updateTriggers: { getColor: [theme] },
       fontFamily: 'system-ui, sans-serif', fontWeight: 600,
     }),
   ];
@@ -269,6 +288,7 @@ function drawFrame() {
   });
   overlay.setProps({ getTooltip: hexTooltip, layers: [staticLayers[0], staticLayers[1], cabs, ...staticLayers.slice(2)].filter(Boolean) });
   frames++;
+  if (frameWaiting) { frameWaiting = false; send({ type: 'ack' }); }
 }
 
 // ---- live panel and legend --------------------------------------------------
@@ -369,6 +389,20 @@ $('side-toggle').addEventListener('click', () => {
   $('side-toggle').textContent = side.classList.contains('collapsed') ? 'Numbers ▸' : 'Numbers ▾';
 });
 if (innerWidth < 760) { $('side').classList.add('collapsed'); $('side-toggle').textContent = 'Numbers ▸'; }
+
+function showThemeButton() {
+  $('theme').textContent = theme === 'dark' ? '☀ Light' : '☾ Dark';
+  $('theme').setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+}
+showThemeButton();
+$('theme').addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem('cybercab-theme', theme); } catch { /* not remembered: fine */ }
+  map.setStyle(basemapStyle(theme, BASE));
+  showThemeButton();
+  buildStaticLayers();
+});
 
 // The control bar wraps on narrow screens: size the other panels from its real height.
 new ResizeObserver(() => {
