@@ -29,6 +29,15 @@ export const STATE = {
 
 export const RIDER = { waiting: 0, assigned: 1, riding: 2, done: 3, lost: 4 } as const;
 
+/** Per-hex totals for one simulated day, by where riders asked for a cab. */
+export interface DayStats {
+  day: number;
+  requests: Float64Array;
+  picked: Float64Array;
+  waitSum: Float64Array;
+  lost: Float64Array;
+}
+
 export interface SimOptions {
   seed: number;
   /** Fleet as % of the county's registered cars (0.1 to 100). */
@@ -187,7 +196,36 @@ export class Simulation {
   private lost = 0;
   private waits: number[] = [];
   private waitAt: number[] = [];
+  private waitHex: number[] = [];
   private liveFrom = 0;
+  private readonly days = new Map<number, DayStats>();
+
+  /** Per-hex totals for the simulated day (of the run) that time t falls in. */
+  dayStats(t: number): DayStats {
+    const d = Math.floor(t / 86400);
+    let s = this.days.get(d);
+    if (!s) {
+      const n = this.world.n;
+      s = { day: d, requests: new Float64Array(n), picked: new Float64Array(n), waitSum: new Float64Array(n), lost: new Float64Array(n) };
+      this.days.set(d, s);
+      this.days.delete(d - 3); // keep a few days only
+    }
+    return s;
+  }
+
+  /** Average wait (s) per hex over the last windowS seconds; NaN where nobody was picked up (R9). */
+  recentHexWaits(windowS = 1800): Float32Array {
+    const out = new Float32Array(this.world.n).fill(NaN);
+    const sum = new Float64Array(this.world.n);
+    const cnt = new Float64Array(this.world.n);
+    const from = this.now - windowS;
+    let i = this.liveFrom;
+    while (i > 0 && this.waitAt[i - 1] >= from) i--;
+    while (i < this.waitAt.length && this.waitAt[i] < from) i++;
+    for (; i < this.waits.length; i++) { sum[this.waitHex[i]] += this.waits[i]; cnt[this.waitHex[i]]++; }
+    for (let h = 0; h < out.length; h++) if (cnt[h] > 0) out[h] = sum[h] / cnt[h];
+    return out;
+  }
   readonly hourWaitSum = new Float64Array(24 * 7);
   readonly hourWaitCount = new Float64Array(24 * 7);
   readonly hourLost = new Float64Array(24 * 7);
@@ -237,8 +275,23 @@ export class Simulation {
     this.lastWash = new Float64Array(N);
 
     const autoOn = opts.autoHubs ?? num(v, 'auto_hubs') === 1;
-    const extra = autoOn ? Math.floor(N / num(v, 'cabs_per_auto_hub')) : 0;
+    // Hubs are placed for the full fleet; with 1-in-N sampling each hub's bays are
+    // shared out at 1/N so cabs per bay stay the same (total bays / N, rounded).
+    const fullCabs = opts.cabs === undefined ? N * this.sampleN : N;
+    const extra = autoOn ? Math.floor(fullCabs / num(v, 'cabs_per_auto_hub')) : 0;
     const plan = placeHubs(world, extra, num(v, 'auto_hub_charge_bays'), num(v, 'auto_hub_clean_bays'));
+    if (this.sampleN > 1 && opts.cabs === undefined) {
+      const share = (bays: number[]) => {
+        // Every hub keeps at least 1 bay; the rest are handed out one at a time in hub order.
+        const target = Math.max(bays.length, Math.round(bays.reduce((a, b) => a + b, 0) / this.sampleN));
+        const out = bays.map((b) => Math.max(1, Math.floor(b / this.sampleN)));
+        let left = target - out.reduce((a, b) => a + b, 0);
+        for (let i = 0; left > 0; i = (i + 1) % out.length, left--) out[i]++;
+        return out;
+      };
+      plan.chargeBays = share(plan.chargeBays);
+      plan.cleanBays = share(plan.cleanBays);
+    }
     const H = plan.hex.length;
     this.hubHex = Int32Array.from(plan.hex);
     this.hubName = plan.name;
@@ -348,6 +401,9 @@ export class Simulation {
         const wait = arrive - R.reqTime[r];
         this.waits.push(wait);
         this.waitAt.push(arrive);
+        this.waitHex.push(R.origin[r]);
+        const dd = this.dayStats(R.reqTime[r]);
+        dd.waitSum[R.origin[r]] += wait; dd.picked[R.origin[r]]++;
         const slot = this.dayOfWeek(R.reqTime[r]) * 24 + Math.floor(this.hourOfDay(R.reqTime[r]));
         this.hourWaitSum[slot] += wait; this.hourWaitCount[slot]++;
         this.pickedUp++;
@@ -678,6 +734,7 @@ export class Simulation {
       this.waiting.push(R.add(t, o, dst, x < p1 ? 1 : 2, -1, eventId, leave));
       this.requests++;
       this.hourRequests[slot]++;
+      this.dayStats(t).requests[o]++;
     } else {
       // 3-4 people: two cabs, each with at most 2 people.
       const four = this.rng.next() < num(d, 'party_4_of_3_4');
@@ -686,6 +743,7 @@ export class Simulation {
       this.waiting.push(R.add(t, o, dst, four ? 2 : 1, g, eventId, leave));
       this.requests += 2;
       this.hourRequests[slot] += 2;
+      this.dayStats(t).requests[o] += 2;
     }
   }
 
@@ -725,6 +783,7 @@ export class Simulation {
       const deadline = R.reqTime[r] + (R.eventLeave[r] ? eventPatienceS : w.patienceS);
       if (now > deadline) {
         R.status[r] = RIDER.lost;
+        this.dayStats(R.reqTime[r]).lost[R.origin[r]]++;
         this.lost++;
         this.hourLost[this.dayOfWeek(R.reqTime[r]) * 24 + Math.floor(this.hourOfDay(R.reqTime[r]))]++;
         continue;
@@ -856,8 +915,10 @@ export class Simulation {
     const surplus = new Int32Array(n);
     const deficit: number[] = [];
     const need = new Int32Array(n);
+    // "At least 1 cab in any hex with demand" is per real cab: with 1-in-N sampling it's 1/N.
+    const minPerHex = 1 / this.sampleN;
     for (let h = 0; h < n; h++) {
-      const target = w.hasDemand[h] ? Math.max(1, Math.round(spare * fc[h])) : 0;
+      const target = w.hasDemand[h] ? Math.round(Math.max(minPerHex, spare * fc[h])) : 0;
       const diff = supply[h] - target;
       if (diff > 0) surplus[h] = Math.min(diff, movable[h]);
       else if (diff < 0) { need[h] = -diff; deficit.push(h); }

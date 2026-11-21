@@ -125,5 +125,7 @@ export function initEvents(map: MapLibreMap, sendEvents: (events: EventDef[]) =>
     },
     /** Send the chosen events again (after the day restarts). */
     resend() { sendEvents(chosen()); },
+    /** The events switched on. */
+    chosen,
   };
 }

@@ -9,7 +9,8 @@ import { H3HexagonLayer } from '@deck.gl/geo-layers';
 import type { Layer, PickingInfo } from '@deck.gl/core';
 import { basemapStyle } from './basemap';
 import { fetchText, parseHexes, type Hex } from './data';
-import { rampColour, type Metric, METRIC_LABEL } from './shading';
+import { rampColour, waitColour, WAIT_BANDS, type Metric, METRIC_LABEL } from './shading';
+import { initReport } from './report-ui';
 import { LEGEND_ORDER, STATE_COLOURS, STATE_LABELS, cssColour } from './colours';
 import type { FromWorker, HubInfo, LiveNumbers, RunSettings, ToWorker } from './sim/protocol';
 import { clockText, fleetCabsText, FLEET_STEPS, pctText } from './format';
@@ -69,6 +70,30 @@ const worker = new Worker(new URL('./sim/worker.ts', import.meta.url), { type: '
 const send = (m: ToWorker) => worker.postMessage(m);
 const eventsUi = initEvents(map, (events) => send({ type: 'events', events }));
 let eventMarkers: ScheduledEvent[] = [];
+// Wait heat map (R9) and the report's wait-by-area map (R10), per hex in hexes.csv order.
+let hexIndex = new Map<string, number>();
+let heatWaits: Float32Array | null = null;
+let heatDemand: Uint8Array | null = null;
+let dayWaits: Float32Array | null = null;
+let heatVersion = 0;
+let rebalanceOn = true;
+
+function setPlaying(on: boolean) {
+  playing = on;
+  $('play').textContent = playing ? '❚❚' : '▶';
+  $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  send({ type: 'play', on: playing });
+}
+
+const reportUi = initReport({
+  send,
+  pause: () => setPlaying(false),
+  showOnMap: (w) => {
+    dayWaits = w;
+    setMetric('dayWaits');
+  },
+  current: () => ({ settings: { ...settings }, rebalancing: rebalanceOn, events: eventsUi.chosen() }),
+});
 
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
   const m = e.data;
@@ -111,6 +136,15 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     case 'live':
       showLive(m.numbers, m.simSpeed);
       break;
+    case 'heat':
+      heatWaits = m.waitsMin;
+      heatDemand = m.hasDemand;
+      heatVersion++;
+      if (metric === 'waits') buildStaticLayers();
+      break;
+    case 'dayReport':
+      reportUi.show(m.report, m.endOfDay);
+      break;
     case 'error':
       status.textContent = `Simulation error: ${m.message}`;
       break;
@@ -136,16 +170,26 @@ function hexTooltip({ object, layer }: PickingInfo): string | null {
   return null;
 }
 
+function hexFill(d: Hex, maxValue: number): [number, number, number, number] {
+  const i = hexIndex.get(d.h3) ?? -1;
+  if (metric === 'waits') {
+    return waitColour(heatWaits ? heatWaits[i] : NaN, heatDemand ? heatDemand[i] === 1 : d.people + d.jobs > 0);
+  }
+  if (metric === 'dayWaits') return waitColour(dayWaits ? dayWaits[i] : NaN, d.people + d.jobs > 0);
+  if (metric === 'none') return [0, 0, 0, 0];
+  return rampColour(d[metric as 'people' | 'jobs' | 'cars'], maxValue);
+}
+
 function buildStaticLayers() {
-  const vals = hexes.map((h) => (metric === 'none' ? 0 : h[metric]));
-  const maxValue = Math.max(1, ...vals);
+  const ramp = metric === 'people' || metric === 'jobs' || metric === 'cars';
+  const maxValue = ramp ? Math.max(1, ...hexes.map((h) => h[metric as 'people' | 'jobs' | 'cars'])) : 1;
   staticLayers = [
     new H3HexagonLayer<Hex>({
       id: 'hexes', data: hexes, visible: metric !== 'none',
       getHexagon: (d) => d.h3,
-      getFillColor: (d) => rampColour(metric === 'none' ? 0 : d[metric], maxValue),
-      stroked: false, opacity: 0.45, pickable: true, highPrecision: false,
-      updateTriggers: { getFillColor: [metric] },
+      getFillColor: (d) => hexFill(d, maxValue),
+      stroked: false, opacity: metric === 'waits' || metric === 'dayWaits' ? 0.6 : 0.45, pickable: true, highPrecision: false,
+      updateTriggers: { getFillColor: [metric, heatVersion, dayWaits] },
     }),
     new GeoJsonLayer({
       id: 'county', data: county as never, filled: false, stroked: true,
@@ -178,10 +222,34 @@ function buildStaticLayers() {
   ];
   dotsChanged = true;
   $('ramp-key').hidden = metric === 'none';
-  if (metric !== 'none') {
-    $('ramp-title').textContent = `${METRIC_LABEL[metric]} per hexagon`;
-    $('ramp-hi').textContent = Math.round(maxValue).toLocaleString();
+  const rampBar = document.querySelector<HTMLElement>('#ramp-key .ramp')!;
+  const rampLabels = document.querySelector<HTMLElement>('#ramp-key .ramp-labels')!;
+  let waitLegend = document.getElementById('wait-legend');
+  if (!waitLegend) {
+    waitLegend = document.createElement('div');
+    waitLegend.id = 'wait-legend';
+    waitLegend.className = 'wait-legend';
+    waitLegend.innerHTML = WAIT_BANDS.map((b) => `<span><i style="background:rgb(${b.colour.join(',')})"></i>${b.label}</span>`).join('');
+    $('ramp-key').appendChild(waitLegend);
   }
+  const waitsShown = metric === 'waits' || metric === 'dayWaits';
+  rampBar.hidden = waitsShown; rampLabels.hidden = waitsShown; waitLegend.hidden = !waitsShown;
+  if (ramp) {
+    $('ramp-title').textContent = `${METRIC_LABEL[metric as 'people' | 'jobs' | 'cars']} per hexagon`;
+    $('ramp-hi').textContent = Math.round(maxValue).toLocaleString();
+  } else if (metric === 'waits') {
+    $('ramp-title').textContent = 'Average wait, last 30 min';
+  } else if (metric === 'dayWaits') {
+    $('ramp-title').textContent = 'Average wait for the day (lost trips as 12 min)';
+  }
+}
+
+function setMetric(m: Metric) {
+  metric = m;
+  document.querySelectorAll<HTMLButtonElement>('.top .buttons button').forEach((x) =>
+    x.classList.toggle('on', x.dataset.metric === m || (m === 'dayWaits' && x.dataset.metric === 'waits')));
+  send({ type: 'heat', on: m === 'waits' });
+  buildStaticLayers();
 }
 
 // Insert cab dots below the hub markers so hubs stay visible.
@@ -237,12 +305,7 @@ function restart() {
   send({ type: 'start', settings: { ...settings } });
 }
 
-$('play').addEventListener('click', () => {
-  playing = !playing;
-  $('play').textContent = playing ? '❚❚' : '▶';
-  $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
-  send({ type: 'play', on: playing });
-});
+$('play').addEventListener('click', () => setPlaying(!playing));
 
 document.querySelectorAll<HTMLButtonElement>('#speeds button').forEach((b) => {
   b.addEventListener('click', () => {
@@ -253,7 +316,6 @@ document.querySelectorAll<HTMLButtonElement>('#speeds button').forEach((b) => {
 
 $('reset').addEventListener('click', restart);
 
-let rebalanceOn = true;
 $('rebalance').addEventListener('click', () => {
   rebalanceOn = !rebalanceOn;
   const b = $('rebalance');
@@ -298,11 +360,7 @@ $<HTMLSelectElement>('day').addEventListener('change', (e) => {
 });
 
 document.querySelectorAll<HTMLButtonElement>('.top .buttons button').forEach((b) => {
-  b.addEventListener('click', () => {
-    metric = b.dataset.metric as Metric;
-    document.querySelectorAll('.top .buttons button').forEach((x) => x.classList.toggle('on', x === b));
-    buildStaticLayers();
-  });
+  b.addEventListener('click', () => setMetric(b.dataset.metric as Metric));
 });
 
 $('side-toggle').addEventListener('click', () => {
@@ -311,6 +369,11 @@ $('side-toggle').addEventListener('click', () => {
   $('side-toggle').textContent = side.classList.contains('collapsed') ? 'Numbers ▸' : 'Numbers ▾';
 });
 if (innerWidth < 760) { $('side').classList.add('collapsed'); $('side-toggle').textContent = 'Numbers ▸'; }
+
+// The control bar wraps on narrow screens: size the other panels from its real height.
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--controls-h', `${$('controls').offsetHeight}px`);
+}).observe($('controls'));
 
 // ---- start ----------------------------------------------------------------------
 
@@ -327,6 +390,7 @@ function fitCounty() {
 async function start() {
   const [hexText, countyText] = await Promise.all([fetchText(`${BASE}data/hexes.csv`), fetchText(`${BASE}data/county.geojson`)]);
   hexes = parseHexes(hexText);
+  hexIndex = new Map(hexes.map((h, i) => [h.h3, i]));
   county = JSON.parse(countyText);
   if (!map.loaded()) await new Promise((r) => map.once('load', r));
   fitCounty();

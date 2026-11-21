@@ -1,7 +1,23 @@
 // Hex shading colours (magma-like ramp, log scale so suburbs still show).
-export type Metric = 'people' | 'jobs' | 'cars' | 'none';
+export type Metric = 'people' | 'jobs' | 'cars' | 'waits' | 'dayWaits' | 'none';
 
-export const METRIC_LABEL: Record<Exclude<Metric, 'none'>, string> = {
+/** Wait heat map colours (spec R9): green < 3 min, yellow 3-6, orange 6-10, red > 10, grey no demand. */
+export const WAIT_BANDS: { label: string; colour: [number, number, number] }[] = [
+  { label: 'Under 3 min', colour: [34, 197, 94] },
+  { label: '3–6 min', colour: [250, 204, 21] },
+  { label: '6–10 min', colour: [249, 115, 22] },
+  { label: 'Over 10 min', colour: [239, 68, 68] },
+  { label: 'No demand', colour: [107, 114, 128] },
+];
+
+export function waitColour(min: number, hasDemand: boolean): [number, number, number, number] {
+  if (!hasDemand) return [0, 0, 0, 0];
+  const band = Number.isNaN(min) ? 4 : min < 3 ? 0 : min < 6 ? 1 : min < 10 ? 2 : 3;
+  const [r, g, b] = WAIT_BANDS[band].colour;
+  return [r, g, b, band === 4 ? 110 : 200];
+}
+
+export const METRIC_LABEL: Record<'people' | 'jobs' | 'cars', string> = {
   people: 'People', jobs: 'Jobs', cars: 'Cars',
 };
 

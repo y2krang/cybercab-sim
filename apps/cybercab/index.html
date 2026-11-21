@@ -18,6 +18,7 @@
         <button data-metric="people">People</button>
         <button data-metric="jobs">Jobs</button>
         <button data-metric="cars">Cars</button>
+        <button data-metric="waits" title="Average wait over the last 30 minutes">Waits</button>
         <button data-metric="none" class="on">Off</button>
       </div>
     </div>
@@ -71,6 +72,25 @@
     <p class="hint">15% of people at an event use a Cybercab. They arrive over the 2 hours before it starts and leave over 2 hours after it ends.</p>
   </section>
 
+  <section class="panel modal" id="report" hidden>
+    <div class="ev-head"><b id="report-title">Day report</b><button id="report-close" class="plain">Close</button></div>
+    <div id="report-summary" class="report-summary"></div>
+    <div class="chart-title">Average wait by hour (minutes)</div>
+    <svg id="report-chart" viewBox="0 0 480 190" role="img" aria-label="Average wait by hour"></svg>
+    <div class="ctrl-row"><button id="report-map" class="plain">Show wait by area on the map</button></div>
+  </section>
+
+  <section class="panel modal" id="sweep" hidden>
+    <div class="ev-head"><b>Fleet sweep</b><button id="sweep-close" class="plain">Close</button></div>
+    <p class="hint">Runs the first day at every fleet size without drawing, with the same seed, day, cab share,
+      rebalancing and events. A fleet passes when every hexagon where anyone asked for a cab averages under
+      5 minutes (lost trips count as a 12-minute wait). It takes a few minutes; the map keeps running.</p>
+    <table class="sweep-table"><thead><tr><th>Fleet</th><th>Cabs</th><th>Avg wait</th><th>Lost</th><th>Hexagons 5 min+</th></tr></thead>
+      <tbody id="sweep-rows"></tbody></table>
+    <div id="sweep-result" class="sweep-result"></div>
+    <div class="ctrl-row"><button id="sweep-start" class="plain">Start sweep</button></div>
+  </section>
+
   <section class="panel controls" id="controls">
     <div class="ctrl-row">
       <button id="play" class="big" aria-label="Play">▶</button>
@@ -84,6 +104,7 @@
       <button id="reset" class="plain">Reset</button>
       <button id="rebalance" class="plain toggle on" aria-pressed="true" title="Send empty cabs ahead to areas about to run short">Rebalancing: On</button>
       <button id="events-btn" class="plain" aria-expanded="false">Events</button>
+      <button id="report-btn" class="plain">Day report</button>
       <button id="more" class="plain" aria-expanded="false">Settings</button>
     </div>
     <div class="ctrl-row sliders">
@@ -106,12 +127,11 @@
           <option value="6">Sunday</option>
         </select>
       </label>
+      <button id="sweep-btn" class="plain">Fleet sweep</button>
       <span class="hint">Changing fleet, share, seed or day restarts the day.</span>
     </div>
-    <div class="foot">Unofficial simulation. Numbers are estimates. · © OpenStreetMap contributors · US Census</div>
+    <div class="foot"><span class="status" id="status">Loading…</span> · Unofficial simulation. Numbers are estimates. · © OpenStreetMap contributors · US Census</div>
   </section>
-
-  <div class="status" id="status">Loading…</div>
 
   <script type="module" src="./src/main.ts"></script>
 </body>

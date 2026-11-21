@@ -1,4 +1,6 @@
 // Messages between the page and the simulation worker.
+import type { DayReport, SweepRow } from './report';
+export type { DayReport, SweepRow };
 
 export interface RunSettings {
   seed: number;
@@ -36,6 +38,9 @@ export interface ScheduledEvent {
 
 export type ToWorker =
   | { type: 'events'; events: EventDef[] }
+  | { type: 'heat'; on: boolean }
+  | { type: 'report' }
+  | { type: 'sweep'; settings: RunSettings; rebalancing: boolean; events: EventDef[]; steps: number[] }
   | { type: 'init'; base: string }
   | { type: 'start'; settings: RunSettings }
   | { type: 'play'; on: boolean }
@@ -69,6 +74,10 @@ export interface LiveNumbers {
 export type FromWorker =
   | { type: 'ready'; registeredVehicles: number; loadSeconds: number; presets: EventDef[] }
   | { type: 'eventsScheduled'; events: ScheduledEvent[] }
+  | { type: 'heat'; waitsMin: Float32Array; hasDemand: Uint8Array }
+  | { type: 'dayReport'; report: DayReport; endOfDay: boolean }
+  | { type: 'sweepRow'; row: SweepRow }
+  | { type: 'sweepDone'; rows: SweepRow[] }
   | {
       type: 'started';
       settings: RunSettings;

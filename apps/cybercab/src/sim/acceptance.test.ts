@@ -83,7 +83,30 @@ describe.runIf(on && process.env.CHECK === 'A7')('acceptance A7', () => {
   }, 1_800_000);
 });
 
-describe.runIf(on && process.env.CHECK !== 'A7')('acceptance (full days)', () => {
+describe.runIf(on && process.env.CHECK === 'A10')('acceptance A10', () => {
+  it('A10: a 20,000-cab day in full and at 1-in-10 sampling give average waits within 10%', () => {
+    const world = loadWorldFromDisk();
+    const run = (sampleN: number) => {
+      const sim = new Simulation(world, { seed: 2026, fleetPct: 2, startDay: 1, sampleN });
+      sim.runUntil(86400);
+      return { cabs: sim.nCabs, s: sim.summary() };
+    };
+    const full = run(1);
+    const sampled = run(10);
+    const diff = Math.abs(sampled.s.avgWaitMin - full.s.avgWaitMin) / full.s.avgWaitMin;
+    const lines = [
+      'A10 sampling test: Tuesday, 2% fleet = 20,000 cabs',
+      `Full (${full.cabs} cabs): average wait ${full.s.avgWaitMin.toFixed(2)} min, lost ${((100 * full.s.lost) / full.s.requests).toFixed(1)}%`,
+      `1 in 10 (${sampled.cabs} cabs): average wait ${sampled.s.avgWaitMin.toFixed(2)} min, lost ${((100 * sampled.s.lost) / sampled.s.requests).toFixed(1)}%`,
+      `Difference: ${(100 * diff).toFixed(1)}% (needs under 10%)`,
+    ];
+    if (process.env.REPORT_FILE) writeFileSync(process.env.REPORT_FILE, lines.join('\n') + '\n');
+    console.log(lines.join('\n'));
+    expect(diff).toBeLessThan(0.1);
+  }, 3_600_000);
+});
+
+describe.runIf(on && !process.env.CHECK)('acceptance (full days)', () => {
   it('A6 drought test: rebalancing cuts suburban worst-10% wait, weekday 16:00-19:00, by at least 30%', () => {
     const world = loadWorldFromDisk();
     const fleetPct = Number(process.env.FLEET ?? 1);

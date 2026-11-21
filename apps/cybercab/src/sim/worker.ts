@@ -7,6 +7,7 @@ import { Simulation } from './sim';
 import { num, type World } from './world';
 import type { EventDef, FromWorker, RunSettings, ToWorker } from './protocol';
 import { scheduleEvent, type SimEvent } from './events';
+import { dayReport, runSweep, samplingFor } from './report';
 
 // Positions are sent ~30 times a second and drawn as they are (no sliding in
 // between on the page), so every dot is always on its road route.
@@ -26,6 +27,8 @@ let realSpeed = 0;
 let dirty = false;      // something changed while paused: send one frame
 let rebalanceOn = true; // switch on the page (R6), kept across restarts
 let eventDefs: EventDef[] = []; // events chosen on the page (R7), kept across restarts
+let heatOn = false;     // wait heat map (R9) shown on the page
+let reportedDay = 0;    // end-of-day reports sent so far (R10)
 let scheduled = new Map<string, SimEvent>(); // key -> event placed in this run
 
 /** Place the chosen events in the running day and tell the page where and when. */
@@ -58,10 +61,8 @@ const post = (m: FromWorker, transfer: Transferable[] = []) =>
 
 function start(settings: RunSettings) {
   if (!world) return;
-  const registered = num(world.area, 'registered_vehicles');
-  const fullFleet = Math.max(1, Math.round((settings.fleetPct / 100) * registered));
-  const limit = num(world.demand, 'sample_above_cabs');
-  const sampleN = fullFleet > limit ? Math.ceil(fullFleet / limit) : 1;
+  const { fullFleet, sampleN } = samplingFor(world, settings.fleetPct);
+  reportedDay = 0;
   sim = new Simulation(world, {
     seed: settings.seed,
     fleetPct: settings.fleetPct,
@@ -103,6 +104,11 @@ function sendLive() {
   if (!sim) return;
   const n = sim.live();
   post({ type: 'live', numbers: { ...n, now: clock }, simSpeed: realSpeed });
+  if (heatOn && world) {
+    const secs = sim.recentHexWaits(1800);
+    const waitsMin = secs.map((s) => s / 60);
+    post({ type: 'heat', waitsMin, hasDemand: world.hasDemand.slice() }, [waitsMin.buffer]);
+  }
 }
 
 function loop() {
@@ -117,6 +123,11 @@ function loop() {
     while (sim.now + 5 <= clock && ticks < MAX_TICKS_PER_FRAME) { sim.step(); ticks++; }
     if (sim.now + 5 <= clock) clock = sim.now; // too slow to keep up: fall back to what's done
     realSpeed = dtReal > 0 ? (clock - before) / dtReal : 0;
+    // End of a simulated day (after 15 min for the last riders): send its report.
+    if (sim.now >= (reportedDay + 1) * 86400 + 15 * 60) {
+      post({ type: 'dayReport', report: dayReport(sim, reportedDay), endOfDay: true });
+      reportedDay++;
+    }
   } else {
     realSpeed = 0;
     if (!dirty) return;
@@ -148,6 +159,22 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       lastReal = performance.now();
     } else if (m.type === 'speed') {
       speed = m.speed;
+    } else if (m.type === 'heat') {
+      heatOn = m.on;
+      if (heatOn) sendLive();
+    } else if (m.type === 'report') {
+      if (sim) post({ type: 'dayReport', report: dayReport(sim, Math.floor(sim.now / 86400)), endOfDay: false });
+    } else if (m.type === 'sweep') {
+      // Runs in its own worker (the page starts a second one), so the map keeps going.
+      if (!world) return;
+      const w = world;
+      const events: SimEvent[] = m.events.map((def, i) => ({
+        id: i, name: def.name, place: def.place, lat: def.lat, lng: def.lng, hex: w.nearestRoadHex(def.lat, def.lng),
+        people: def.people, ...scheduleEvent(def, m.settings.startDay, 0),
+      }));
+      const rows = runSweep(w, { seed: m.settings.seed, startDay: m.settings.startDay, cabShare: m.settings.cabShare,
+        rebalancing: m.rebalancing, events }, m.steps, (row) => post({ type: 'sweepRow', row }));
+      post({ type: 'sweepDone', rows });
     } else if (m.type === 'events') {
       eventDefs = m.events;
       applyEvents();
