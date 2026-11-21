@@ -1,6 +1,6 @@
 // The fixed "world" the simulation runs in: hexes, people, jobs, travel times,
 // home-work flows and all the editable numbers from the CSV files.
-import { parseCsv, parseHexes, parseParams, type Param } from '../data';
+import { parseCsv, parseHexes, parseHubs, parseParams, type Param } from '../data';
 import { NO_ROAD, TravelTable, slowdownFactor } from '../travel';
 import { Alias } from './rng';
 
@@ -19,6 +19,15 @@ export interface WorldInput {
   shareCsv: string;
   slowdownCsv: string;
   areaCsv: string;
+  hubsCsv: string;
+  hubSitesCsv: string;
+}
+
+export interface FixedHub {
+  name: string;
+  hex: number;
+  chargeBays: number;
+  cleanBays: number;
 }
 
 export function num(p: Params, key: string): number {
@@ -68,6 +77,10 @@ export class World {
   readonly nightlifeAlias: Alias;
   readonly circuity: number;
   readonly patienceS: number;
+  /** Hubs from hubs.csv, each mapped to its hex. */
+  readonly hubs: FixedHub[];
+  /** Hexes with a major road junction (hub_sites.csv), for auto-placed hubs. */
+  readonly hubSites: number[];
 
   private readonly nearbyCache = new Map<number, Int32Array>();
   private readonly gravityCache = new Map<number, Float64Array>();
@@ -117,8 +130,27 @@ export class World {
       if (!this.hasRoad[i]) continue;
       if (NIGHTLIFE_SPOTS.some(([la, lo]) => metresBetween(la, lo, this.lat[i], this.lng[i]) <= radius)) night.push(i);
     }
+    this.hubs = parseHubs(input.hubsCsv).map((h) => ({
+      name: h.name, chargeBays: h.chargeBays, cleanBays: h.cleanBays, hex: this.nearestRoadHex(h.lat, h.lng),
+    }));
+    this.hubSites = parseCsv(input.hubSitesCsv)
+      .map((r) => pos.get(r.h3))
+      .filter((i): i is number => i !== undefined && this.hasRoad[i] === 1);
+
     this.nightlifeHexes = Int32Array.from(night);
     this.nightlifeAlias = new Alias(night.map((i) => this.jobs[i] + this.people[i] + 1));
+  }
+
+  /** The hex with roads whose centre is closest to a point. */
+  nearestRoadHex(lat: number, lng: number): number {
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < this.n; i++) {
+      if (!this.hasRoad[i]) continue;
+      const d = metresBetween(lat, lng, this.lat[i], this.lng[i]);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
   }
 
   /** Road miles between hex centres (straight line x circuity; short floor inside one hex). */
@@ -190,11 +222,18 @@ export class World {
     return pts[pts.length - 1][1];
   }
 
+  private hourShares: { weekday: Float64Array; weekend: Float64Array } | null = null;
+
   /** Share of a day's trips in this hour (hourly.csv, normalised so each day sums to 1). */
   hourShare(weekend: boolean, hour: number): number {
-    const prefix = weekend ? 'weekend' : 'weekday';
-    let total = 0;
-    for (let h = 0; h < 24; h++) total += num(this.hourly, `${prefix}_${String(h).padStart(2, '0')}`);
-    return num(this.hourly, `${prefix}_${String(Math.floor(hour)).padStart(2, '0')}`) / total;
+    if (!this.hourShares) {
+      const make = (prefix: string) => {
+        const a = Float64Array.from({ length: 24 }, (_, h) => num(this.hourly, `${prefix}_${String(h).padStart(2, '0')}`));
+        const total = a.reduce((s, x) => s + x, 0);
+        return a.map((x) => x / total);
+      };
+      this.hourShares = { weekday: make('weekday'), weekend: make('weekend') };
+    }
+    return (weekend ? this.hourShares.weekend : this.hourShares.weekday)[Math.floor(hour) % 24];
   }
 }

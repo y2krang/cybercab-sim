@@ -3,7 +3,13 @@ seats,2,people,fact,Wikipedia: Tesla Cybercab
 battery_kwh,47.6,kWh,estimate,Spec section 3 (ev-global)
 usable_range,260,miles,estimate,Spec section 3
 energy_use,0.17,kWh per mile,estimate,Spec section 3 (47.6 / ~280 miles)
-start_battery,0.9,share of battery,estimate,Not in spec: cabs start the day 90% charged
+start_battery,0.9,share of battery,estimate,Not in spec: most charged a cab starts the day
+start_battery_min,0.5,share of battery,estimate,Not in spec: least charged a cab starts the day (spread so they don't all need charging at once)
+low_demand_ratio,0.8,x an average hour,estimate,Not in spec: an hour counts as low demand when its share of the day's trips is below 0.8 x 1/24
+auto_hubs,1,1 = on,estimate,Spec section 4 (auto-place hubs; default on)
+cabs_per_auto_hub,300,cabs,estimate,Spec section 4 (one extra hub per 300 cabs)
+auto_hub_charge_bays,24,bays,estimate,Spec section 4 (same bay counts)
+auto_hub_clean_bays,4,bays,estimate,Spec section 4 (same bay counts)
 charge_trigger,0.2,share of battery,estimate,Spec section 3
 charge_trigger_low_demand,0.5,share of battery,estimate,Spec section 3 (when demand is low and a bay is free)
 charge_to,0.8,share of battery,estimate,Spec section 3

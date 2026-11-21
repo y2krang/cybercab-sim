@@ -4,6 +4,15 @@
 import { NO_ROAD } from '../travel';
 import { Rng, sampleCdf } from './rng';
 import { num, type World } from './world';
+import { placeHubs } from './hubs';
+
+/** Where a cab is in a hub visit (states charging / cleaning). */
+export const PHASE = { driving: 0, queued: 1, service: 2 } as const;
+
+/** Minutes to charge from one battery share to another (plus parking and leaving). */
+export function chargeMinutes(from: number, to: number, batteryKwh: number, powerKw: number, parkLeaveMin: number): number {
+  return (Math.max(0, to - from) * batteryKwh / powerKw) * 60 + parkLeaveMin;
+}
 
 /** Cab states. Colours (spec R2) are applied by the map in step 6. */
 export const STATE = {
@@ -30,6 +39,8 @@ export interface SimOptions {
   sampleN?: number;
   /** Override the number of cabs (tests). */
   cabs?: number;
+  /** Auto-place extra hubs (spec section 4). Default: vehicle.csv auto_hubs. */
+  autoHubs?: boolean;
 }
 
 /** Growable typed-array store for riders (one row per cab request). */
@@ -79,6 +90,12 @@ export interface Summary {
   ridesPerCabPerDay: number;
   cabsByState: number[];
   batteryEmptyCabs: number;
+  hubs: number;
+  chargerQueue: number;
+  cleaningQueue: number;
+  charges: number;
+  cleans: number;
+  lowestBatteryPct: number;
 }
 
 export class Simulation {
@@ -102,6 +119,28 @@ export class Simulation {
   readonly miles: Float64Array;
   readonly emptyMiles: Float64Array;
   readonly rides: Int32Array;
+  readonly energyUsed: Float64Array; // kWh driven
+  readonly phase: Uint8Array;
+  readonly hubOf: Int32Array;
+  readonly chargeTo: Float32Array;   // battery share the current charge ends at
+  readonly cleanMin: Float32Array;   // minutes of cleaning for the current visit
+  readonly deepPending: Uint8Array;
+  readonly ridesSinceClean: Int32Array;
+  readonly lastClean: Float64Array;
+  readonly lastWash: Float64Array;
+
+  // Hubs
+  readonly hubHex: Int32Array;
+  readonly hubName: string[];
+  readonly hubAuto: boolean[];
+  readonly chargeBays: Int32Array;
+  readonly cleanBays: Int32Array;
+  readonly chargeBusy: Int32Array;
+  readonly cleanBusy: Int32Array;
+  readonly chargeHeading: Int32Array;
+  readonly cleanHeading: Int32Array;
+  readonly chargeQueue: number[][];
+  readonly cleanQueue: number[][];
 
   readonly riders = new Riders();
   private waiting: number[] = [];
@@ -122,6 +161,11 @@ export class Simulation {
   private readonly dropoffS: number;
   private readonly kwhPerMile: number;
   private readonly finishWindowS: number;
+  private readonly batteryKwh: number;
+  private readonly chargePowerKw: number;
+  private readonly parkLeaveMin: number;
+  private charges = 0;
+  private cleans = 0;
 
   // Totals
   private requests = 0;
@@ -159,22 +203,59 @@ export class Simulation {
     this.busyUntil = new Float64Array(N);
     this.rider = new Int32Array(N).fill(-1);
     this.nextRider = new Int32Array(N).fill(-1);
-    this.battery = new Float32Array(N).fill(num(v, 'battery_kwh') * num(v, 'start_battery'));
+    this.batteryKwh = num(v, 'battery_kwh');
+    this.chargePowerKw = num(v, 'wireless_on') ? num(v, 'wireless_power') : num(v, 'charge_power');
+    this.parkLeaveMin = num(v, 'park_leave_min');
+    this.battery = new Float32Array(N);
     this.miles = new Float64Array(N);
     this.emptyMiles = new Float64Array(N);
     this.rides = new Int32Array(N);
+    this.energyUsed = new Float64Array(N);
+    this.phase = new Uint8Array(N);
+    this.hubOf = new Int32Array(N).fill(-1);
+    this.chargeTo = new Float32Array(N);
+    this.cleanMin = new Float32Array(N);
+    this.deepPending = new Uint8Array(N);
+    this.ridesSinceClean = new Int32Array(N);
+    this.lastClean = new Float64Array(N);
+    this.lastWash = new Float64Array(N);
+
+    const autoOn = opts.autoHubs ?? num(v, 'auto_hubs') === 1;
+    const extra = autoOn ? Math.floor(N / num(v, 'cabs_per_auto_hub')) : 0;
+    const plan = placeHubs(world, extra, num(v, 'auto_hub_charge_bays'), num(v, 'auto_hub_clean_bays'));
+    const H = plan.hex.length;
+    this.hubHex = Int32Array.from(plan.hex);
+    this.hubName = plan.name;
+    this.hubAuto = plan.auto;
+    this.chargeBays = Int32Array.from(plan.chargeBays);
+    this.cleanBays = Int32Array.from(plan.cleanBays);
+    this.chargeBusy = new Int32Array(H);
+    this.cleanBusy = new Int32Array(H);
+    this.chargeHeading = new Int32Array(H);
+    this.cleanHeading = new Int32Array(H);
+    this.chargeQueue = Array.from({ length: H }, () => []);
+    this.cleanQueue = Array.from({ length: H }, () => []);
     this.idleHead = new Int32Array(world.n).fill(-1);
     this.idleNext = new Int32Array(N).fill(-1);
     this.idlePrev = new Int32Array(N).fill(-1);
     this.soonHead = new Int32Array(world.n).fill(-1);
     this.soonNext = new Int32Array(N).fill(-1);
 
-    // Start: cabs spread across the county in proportion to people (estimate).
+    // Start: cabs spread across the county in proportion to people, batteries and
+    // cleaning counters spread out so they don't all need a hub at once (estimates).
     const place = new Rng(opts.seed ^ 0x5eed);
+    const bLo = num(v, 'start_battery_min');
+    const bHi = num(v, 'start_battery');
+    const qRides = num(v, 'quick_clean_rides');
+    const washS = num(v, 'wash_days') * 86400;
     for (let c = 0; c < N; c++) {
       const h = world.peopleAlias.sample(place);
       this.hex[c] = h; this.dest[c] = h;
       this.state[c] = STATE.idle;
+      this.battery[c] = this.batteryKwh * (bLo + (bHi - bLo) * place.next());
+      this.ridesSinceClean[c] = place.int(qRides);
+      this.lastClean[c] = -place.next() * 86400;
+      this.lastWash[c] = -place.next() * washS;
       this.addIdle(c, h);
     }
   }
@@ -210,6 +291,7 @@ export class Simulation {
     const from = this.now;
     this.now += this.dt;
     this.advanceCabs();
+    if (Math.floor(this.now / 60) !== Math.floor(from / 60)) this.checkWaitingCabs();
     this.generateDemand(from, this.now);
     this.dispatch();
   }
@@ -226,6 +308,7 @@ export class Simulation {
     const m = this.world.miles(from, to);
     this.miles[c] += m;
     if (!loaded) this.emptyMiles[c] += m;
+    this.energyUsed[c] += m * this.kwhPerMile;
     this.battery[c] = Math.max(0, this.battery[c] - m * this.kwhPerMile);
     this.hex[c] = from; this.dest[c] = to;
     this.t0[c] = depart; this.t1[c] = depart + secs;
@@ -235,6 +318,8 @@ export class Simulation {
   private advanceCabs() {
     const now = this.now;
     const R = this.riders;
+    const arrivals: number[] = [];
+    const services: number[] = [];
     for (let c = 0; c < this.nCabs; c++) {
       const st = this.state[c];
       if (st === STATE.toPickup && this.t1[c] <= now) {
@@ -255,19 +340,199 @@ export class Simulation {
         R.status[r] = RIDER.done;
         this.completed++;
         this.rides[c]++;
+        this.ridesSinceClean[c]++;
+        if (this.rng.next() < num(this.world.vehicle, 'deep_clean_rate')) this.deepPending[c] = 1;
         const free = this.busyUntil[c];
         const h = this.dest[c];
         this.hex[c] = h;
         this.t0[c] = free; this.t1[c] = free;
         const nr = this.nextRider[c];
+        this.rider[c] = -1;
         if (nr >= 0) {
           this.nextRider[c] = -1;
           this.startPickup(c, nr, h, free);
         } else {
-          this.rider[c] = -1;
-          this.state[c] = STATE.idle;
-          this.addIdle(c, h);
+          this.becomeFree(c, h, free);
         }
+      } else if ((st === STATE.charging || st === STATE.cleaning) && this.t1[c] <= now) {
+        if (this.phase[c] === PHASE.driving) arrivals.push(c);
+        else if (this.phase[c] === PHASE.service) services.push(c);
+      }
+    }
+    // Hub arrivals join queues in arrival order (spec section 4); services end in time order.
+    services.sort((a, b) => this.t1[a] - this.t1[b] || a - b);
+    for (const c of services) this.finishService(c);
+    arrivals.sort((a, b) => this.t1[a] - this.t1[b] || a - b);
+    for (const c of arrivals) {
+      const kind = this.state[c] === STATE.cleaning ? 'clean' : 'charge';
+      if (kind === 'charge') this.chargeHeading[this.hubOf[c]]--; else this.cleanHeading[this.hubOf[c]]--;
+      this.hex[c] = this.dest[c];
+      this.joinQueue(c, kind, this.t1[c]);
+    }
+  }
+
+  // ---- charging and cleaning (spec sections 3-4) -------------------------
+
+  private lowDemand(t: number): boolean {
+    const w = this.world;
+    const weekend = this.dayOfWeek(t) >= 5;
+    return w.hourShare(weekend, this.hourOfDay(t)) < num(w.vehicle, 'low_demand_ratio') / 24;
+  }
+
+  private nearestHub(h: number): number {
+    const n = this.world.n;
+    const base = this.world.travel.base;
+    let best = 0;
+    let bestT = Infinity;
+    for (let k = 0; k < this.hubHex.length; k++) {
+      const b = base[h * n + this.hubHex[k]];
+      if (b !== NO_ROAD && b < bestT) { bestT = b; best = k; }
+    }
+    return best;
+  }
+
+  /**
+   * Hub to visit from hex h: shortest drive plus expected wait for a bay
+   * (cabs already queued or heading there, shared over its bays).
+   */
+  private chooseHub(h: number, kind: 'charge' | 'clean'): number {
+    const n = this.world.n;
+    const base = this.world.travel.base;
+    const avgServiceS = kind === 'clean' ? 12 * 60 : 14 * 60;
+    let best = 0;
+    let bestScore = Infinity;
+    for (let k = 0; k < this.hubHex.length; k++) {
+      const b = base[h * n + this.hubHex[k]];
+      if (b === NO_ROAD) continue;
+      const busy = kind === 'clean' ? this.cleanBusy[k] : this.chargeBusy[k];
+      const waiting = kind === 'clean'
+        ? this.cleanQueue[k].length + this.cleanHeading[k]
+        : this.chargeQueue[k].length + this.chargeHeading[k];
+      const bays = kind === 'clean' ? this.cleanBays[k] : this.chargeBays[k];
+      const ahead = busy + waiting - bays + 1;
+      const score = b + (ahead > 0 ? (ahead / bays) * avgServiceS : 0);
+      if (score < bestScore) { bestScore = score; best = k; }
+    }
+    return best;
+  }
+
+  private chargerFree(k: number): boolean {
+    return this.chargeBusy[k] + this.chargeQueue[k].length + this.chargeHeading[k] < this.chargeBays[k];
+  }
+
+  /** Does cab c need charging now? (spec section 3: < 20%, or < 50% when demand is low and a bay is free) */
+  private needsCharge(c: number, t: number): boolean {
+    const v = this.world.vehicle;
+    const soc = this.battery[c] / this.batteryKwh;
+    if (soc < num(v, 'charge_trigger')) return true;
+    return soc < num(v, 'charge_trigger_low_demand') && this.lowDemand(t) && this.chargerFree(this.nearestHub(this.hex[c]));
+  }
+
+  /** Minutes of cleaning cab c needs now (0 = none). */
+  private cleaningNeeded(c: number, t: number): number {
+    const v = this.world.vehicle;
+    let m = 0;
+    if (this.deepPending[c]) m += num(v, 'deep_clean_min');
+    else if (this.ridesSinceClean[c] >= num(v, 'quick_clean_rides') || t - this.lastClean[c] >= 86400) m += num(v, 'quick_clean_min');
+    if (t - this.lastWash[c] >= num(v, 'wash_days') * 86400) m += num(v, 'wash_min');
+    return m;
+  }
+
+  /** A cab has nothing to do at hex h from time t: go to a hub if needed, else wait. */
+  private becomeFree(c: number, h: number, t: number) {
+    this.hex[c] = h;
+    const clean = this.cleaningNeeded(c, t);
+    if (clean > 0 || this.needsCharge(c, t)) {
+      this.sendToHub(c, h, t, clean);
+      return;
+    }
+    const atHub = this.hubHex.includes(h);
+    this.state[c] = atHub && this.lowDemand(t) ? STATE.parked : STATE.idle;
+    this.phase[c] = 0;
+    this.t0[c] = t; this.t1[c] = t;
+    this.addIdle(c, h);
+  }
+
+  private sendToHub(c: number, from: number, t: number, cleanMin: number) {
+    const k = this.chooseHub(from, cleanMin > 0 ? 'clean' : 'charge');
+    this.hubOf[c] = k;
+    this.cleanMin[c] = cleanMin;
+    this.state[c] = cleanMin > 0 ? STATE.cleaning : STATE.charging;
+    this.phase[c] = PHASE.driving;
+    if (cleanMin === 0) this.chargeHeading[k]++; else this.cleanHeading[k]++;
+    this.drive(c, from, this.hubHex[k], t, false);
+  }
+
+  private joinQueue(c: number, kind: 'charge' | 'clean', t: number) {
+    const k = this.hubOf[c];
+    this.state[c] = kind === 'clean' ? STATE.cleaning : STATE.charging;
+    this.t0[c] = t; this.t1[c] = t;
+    const busy = kind === 'clean' ? this.cleanBusy : this.chargeBusy;
+    const bays = kind === 'clean' ? this.cleanBays : this.chargeBays;
+    const queue = kind === 'clean' ? this.cleanQueue[k] : this.chargeQueue[k];
+    if (busy[k] < bays[k] && queue.length === 0) this.startService(c, kind, t);
+    else { this.phase[c] = PHASE.queued; queue.push(c); }
+  }
+
+  private startService(c: number, kind: 'charge' | 'clean', t: number) {
+    const k = this.hubOf[c];
+    const v = this.world.vehicle;
+    this.phase[c] = PHASE.service;
+    this.t0[c] = t;
+    if (kind === 'clean') {
+      this.cleanBusy[k]++;
+      this.t1[c] = t + this.cleanMin[c] * 60;
+    } else {
+      this.chargeBusy[k]++;
+      const h = this.hourOfDay(t);
+      const target = h >= 1 && h < 5 ? num(v, 'charge_to_night') : num(v, 'charge_to');
+      const from = this.battery[c] / this.batteryKwh;
+      this.chargeTo[c] = Math.max(target, from);
+      this.t1[c] = t + chargeMinutes(from, this.chargeTo[c], this.batteryKwh, this.chargePowerKw, this.parkLeaveMin) * 60;
+    }
+  }
+
+  private finishService(c: number) {
+    const k = this.hubOf[c];
+    const t = this.t1[c];
+    const kind = this.state[c] === STATE.cleaning ? 'clean' : 'charge';
+    // Free the bay and start the next cab in the queue at the same moment.
+    if (kind === 'clean') {
+      this.cleanBusy[k]--;
+      const next = this.cleanQueue[k].shift();
+      if (next !== undefined) this.startService(next, 'clean', t);
+      const v = this.world.vehicle;
+      if (t - this.lastWash[c] >= num(v, 'wash_days') * 86400) this.lastWash[c] = t;
+      this.lastClean[c] = t;
+      this.ridesSinceClean[c] = 0;
+      this.deepPending[c] = 0;
+      this.cleanMin[c] = 0;
+      this.cleans++;
+      if (this.needsCharge(c, t)) { this.joinQueue(c, 'charge', t); return; }
+    } else {
+      this.chargeBusy[k]--;
+      const next = this.chargeQueue[k].shift();
+      if (next !== undefined) this.startService(next, 'charge', t);
+      this.battery[c] = this.chargeTo[c] * this.batteryKwh;
+      this.charges++;
+    }
+    this.hubOf[c] = -1;
+    this.becomeFree(c, this.hubHex[k], t);
+  }
+
+  /** Every minute: waiting cabs that now need a hub go; parked cabs turn blue when demand picks up. */
+  private checkWaitingCabs() {
+    const t = this.now;
+    const low = this.lowDemand(t);
+    for (let c = 0; c < this.nCabs; c++) {
+      const st = this.state[c];
+      if (st !== STATE.idle && st !== STATE.parked) continue;
+      const clean = this.cleaningNeeded(c, t);
+      if (clean > 0 || this.needsCharge(c, t)) {
+        this.removeIdle(c);
+        this.sendToHub(c, this.hex[c], t, clean);
+      } else if (st === STATE.parked && !low) {
+        this.state[c] = STATE.idle;
       }
     }
   }
@@ -380,8 +645,12 @@ export class Simulation {
     // Red cabs finishing within the window, by drop-off hex.
     for (const h of this.soonTouched) this.soonHead[h] = -1;
     this.soonTouched.length = 0;
+    // Cabs that will need a hub after this drop-off (low battery, mess, 15th ride) aren't offered.
+    const lowKwh = num(w.vehicle, 'charge_trigger') * this.batteryKwh;
+    const cleanAfter = num(w.vehicle, 'quick_clean_rides') - 1;
     for (let c = 0; c < this.nCabs; c++) {
-      if (this.state[c] === STATE.withRider && this.nextRider[c] < 0 && this.busyUntil[c] <= now + this.finishWindowS) {
+      if (this.state[c] === STATE.withRider && this.nextRider[c] < 0 && this.busyUntil[c] <= now + this.finishWindowS
+        && this.battery[c] >= lowKwh && !this.deepPending[c] && this.ridesSinceClean[c] < cleanAfter) {
         const h = this.dest[c];
         if (this.soonHead[h] < 0) this.soonTouched.push(h);
         this.soonNext[c] = this.soonHead[h];
@@ -447,11 +716,13 @@ export class Simulation {
     let empty = 0;
     let rides = 0;
     let flat = 0;
+    let lowest = Infinity;
     const byState = new Array(7).fill(0);
     for (let c = 0; c < this.nCabs; c++) {
       miles += this.miles[c]; empty += this.emptyMiles[c]; rides += this.rides[c];
       byState[this.state[c]]++;
       if (this.battery[c] <= 0) flat++;
+      lowest = Math.min(lowest, this.battery[c] / this.batteryKwh);
     }
     const days = this.now / 86400;
     return {
@@ -469,6 +740,12 @@ export class Simulation {
       ridesPerCabPerDay: days > 0 ? rides / this.nCabs / days : 0,
       cabsByState: byState,
       batteryEmptyCabs: flat,
+      hubs: this.hubHex.length,
+      chargerQueue: this.chargeQueue.reduce((s, q) => s + q.length, 0),
+      cleaningQueue: this.cleanQueue.reduce((s, q) => s + q.length, 0),
+      charges: this.charges,
+      cleans: this.cleans,
+      lowestBatteryPct: 100 * lowest,
     };
   }
 

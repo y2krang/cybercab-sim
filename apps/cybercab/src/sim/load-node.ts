@@ -27,6 +27,8 @@ export function loadWorldFromDisk(): World {
     shareCsv: text('share.csv'),
     slowdownCsv: text('slowdown.csv'),
     areaCsv: text('area.csv'),
+    hubsCsv: text('hubs.csv'),
+    hubSitesCsv: text('hub_sites.csv'),
   });
   return cached;
 }

@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Alias, Rng } from './rng';
 import { loadWorldFromDisk } from './load-node';
-import { RIDER, STATE, Simulation } from './sim';
+import { PHASE, RIDER, STATE, Simulation, chargeMinutes } from './sim';
+import { placeHubs } from './hubs';
 import { legFraction, positionAlong, routeChain } from './movement';
 import type { World } from './world';
 import { num } from './world';
@@ -26,6 +27,27 @@ function checkInvariants(sim: Simulation) {
   }
   // No rider is ever given two cabs.
   for (const n of cabsPerRider.values()) expect(n).toBe(1);
+  // Hub bays: never more cabs in service than bays; a queue only when all bays are busy;
+  // queues are in arrival order.
+  const H = sim.hubHex.length;
+  const inCharge = new Array(H).fill(0);
+  const inClean = new Array(H).fill(0);
+  for (let c = 0; c < sim.nCabs; c++) {
+    if (sim.phase[c] !== PHASE.service) continue;
+    if (sim.state[c] === STATE.charging) inCharge[sim.hubOf[c]]++;
+    if (sim.state[c] === STATE.cleaning) inClean[sim.hubOf[c]]++;
+  }
+  for (let k = 0; k < H; k++) {
+    expect(sim.chargeBusy[k]).toBe(inCharge[k]);
+    expect(sim.cleanBusy[k]).toBe(inClean[k]);
+    expect(sim.chargeBusy[k]).toBeLessThanOrEqual(sim.chargeBays[k]);
+    expect(sim.cleanBusy[k]).toBeLessThanOrEqual(sim.cleanBays[k]);
+    if (sim.chargeQueue[k].length) expect(sim.chargeBusy[k]).toBe(sim.chargeBays[k]);
+    if (sim.cleanQueue[k].length) expect(sim.cleanBusy[k]).toBe(sim.cleanBays[k]);
+    for (const q of [sim.chargeQueue[k], sim.cleanQueue[k]]) {
+      for (let i = 1; i < q.length; i++) expect(sim.t0[q[i]]).toBeGreaterThanOrEqual(sim.t0[q[i - 1]]);
+    }
+  }
 }
 
 describe('random numbers', () => {
@@ -77,6 +99,31 @@ describe('world', () => {
   });
 });
 
+describe('charging and hubs', () => {
+  it('20% to 80% charge takes 12 +- 1 min at 150 kW (check A5)', () => {
+    const kwh = num(world.vehicle, 'battery_kwh');
+    const kw = num(world.vehicle, 'charge_power');
+    const m = chargeMinutes(0.2, 0.8, kwh, kw, 0);
+    expect(m).toBeGreaterThanOrEqual(11);
+    expect(m).toBeLessThanOrEqual(13);
+    // Plus 2 min to park and leave.
+    expect(chargeMinutes(0.2, 0.8, kwh, kw, 2) - m).toBeCloseTo(2);
+  });
+
+  it('places the two Austin hubs plus one per 300 cabs at distinct junctions', () => {
+    const plan = placeHubs(world, 10, 24, 4);
+    expect(plan.hex.length).toBe(12);
+    expect(new Set(plan.hex).size).toBe(12);
+    expect(plan.name.slice(0, 2)).toEqual(['Ben White hub', 'Ridgepoint hub']);
+    for (const h of plan.hex.slice(2)) expect(world.hubSites).toContain(h);
+  });
+
+  it('auto hubs can be switched off', () => {
+    const s = new Simulation(world, { seed: 1, fleetPct: 1, autoHubs: false });
+    expect(s.summary().hubs).toBe(2);
+  });
+});
+
 describe('movement', () => {
   it('route chains run from start to end through neighbours', () => {
     const a = world.peopleAlias.sample(new Rng(3));
@@ -121,14 +168,25 @@ describe('simulation core (check A5 parts)', () => {
   });
 
   it('battery use is 0.17 kWh per mile', () => {
-    const start = num(world.vehicle, 'battery_kwh') * num(world.vehicle, 'start_battery');
     let checked = 0;
     for (let c = 0; c < sim.nCabs; c++) {
-      if (sim.miles[c] === 0 || sim.battery[c] <= 0) continue;
-      expect(start - sim.battery[c]).toBeCloseTo(sim.miles[c] * 0.17, 2);
+      if (sim.miles[c] === 0) continue;
+      expect(sim.energyUsed[c]).toBeCloseTo(sim.miles[c] * 0.17, 6);
       checked++;
     }
     expect(checked).toBeGreaterThan(100);
+  });
+
+  it('cabs charge and clean; no battery runs flat', () => {
+    const s = sim.summary();
+    expect(s.hubs).toBe(2 + Math.floor(5000 / 300));
+    expect(s.charges).toBeGreaterThan(50);
+    expect(s.cleans).toBeGreaterThan(50);
+    expect(s.batteryEmptyCabs).toBe(0);
+    for (let c = 0; c < sim.nCabs; c++) {
+      // Quick clean every 15 rides.
+      expect(sim.ridesSinceClean[c]).toBeLessThanOrEqual(15);
+    }
   });
 
   it('nobody is picked up after giving up (12 min), lost trips are counted', () => {
