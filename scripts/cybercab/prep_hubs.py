@@ -1,6 +1,7 @@
 """Hub locations (spec section 4): look up the two reported Austin hub addresses in
 the OpenStreetMap extract (no outside geocoding service) and write hubs.csv.
-Bay counts are from the spec; edit hubs.csv to change them or add hubs."""
+Bay counts: 24 charging (spec), 8 cleaning (owner, 2026-11-21). Edit hubs.csv to
+change them or add hubs."""
 import csv
 import sys
 
@@ -47,8 +48,8 @@ def main():
         w.writerow(["name", "address", "lat", "lng", "charge_bays", "clean_bays", "label", "source"])
         for name, _, _ in HUBS:
             lat, lon, addr = found[name]
-            w.writerow([name, f"{addr}, Austin TX", round(lat, 6), round(lon, 6), 24, 4, "estimate",
-                        "Spec section 4; location from OpenStreetMap address"])
+            w.writerow([name, f"{addr}, Austin TX", round(lat, 6), round(lon, 6), 24, 8, "estimate",
+                        "Spec section 4 (cleaning bays 8: owner, 2026-11-21); location from OpenStreetMap address"])
 
 
 if __name__ == "__main__":

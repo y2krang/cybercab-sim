@@ -80,10 +80,17 @@ export async function fetchText(url: string): Promise<string> {
   return res.text();
 }
 
-/** Fetch a .bin.gz file and unzip it in the browser. */
+/**
+ * Fetch a .bin.gz file and unzip it in the browser. Some servers send it with
+ * "Content-Encoding: gzip", so the browser has already unzipped it: only unzip
+ * when the bytes still start with the gzip marker (1f 8b).
+ */
 export async function fetchGzipBytes(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
-  if (!res.ok || !res.body) throw new Error(`Could not load ${url} (${res.status})`);
-  const stream = res.body.pipeThrough(new DecompressionStream('gzip'));
+  if (!res.ok) throw new Error(`Could not load ${url} (${res.status})`);
+  const raw = await res.arrayBuffer();
+  const head = new Uint8Array(raw, 0, Math.min(2, raw.byteLength));
+  if (head[0] !== 0x1f || head[1] !== 0x8b) return raw;
+  const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'));
   return new Response(stream).arrayBuffer();
 }

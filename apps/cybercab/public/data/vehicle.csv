@@ -9,7 +9,7 @@ low_demand_ratio,0.8,x an average hour,estimate,Not in spec: an hour counts as l
 auto_hubs,1,1 = on,estimate,Spec section 4 (auto-place hubs; default on)
 cabs_per_auto_hub,300,cabs,estimate,Spec section 4 (one extra hub per 300 cabs)
 auto_hub_charge_bays,24,bays,estimate,Spec section 4 (same bay counts)
-auto_hub_clean_bays,4,bays,estimate,Spec section 4 (same bay counts)
+auto_hub_clean_bays,8,bays,estimate,"Owner, 2026-11-21: 8 (spec said 4; 4 could not keep up with the cleaning rules)"
 charge_trigger,0.2,share of battery,estimate,Spec section 3
 charge_trigger_low_demand,0.5,share of battery,estimate,Spec section 3 (when demand is low and a bay is free)
 charge_to,0.8,share of battery,estimate,Spec section 3

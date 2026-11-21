@@ -173,6 +173,8 @@ export class Simulation {
   private completed = 0;
   private lost = 0;
   private waits: number[] = [];
+  private waitAt: number[] = [];
+  private liveFrom = 0;
   readonly hourWaitSum = new Float64Array(24 * 7);
   readonly hourWaitCount = new Float64Array(24 * 7);
   readonly hourLost = new Float64Array(24 * 7);
@@ -329,6 +331,7 @@ export class Simulation {
         R.status[r] = RIDER.riding;
         const wait = arrive - R.reqTime[r];
         this.waits.push(wait);
+        this.waitAt.push(arrive);
         const slot = this.dayOfWeek(R.reqTime[r]) * 24 + Math.floor(this.hourOfDay(R.reqTime[r]));
         this.hourWaitSum[slot] += wait; this.hourWaitCount[slot]++;
         this.pickedUp++;
@@ -746,6 +749,48 @@ export class Simulation {
       charges: this.charges,
       cleans: this.cleans,
       lowestBatteryPct: 100 * lowest,
+    };
+  }
+
+  /**
+   * Numbers for the live panel (spec R8). Waits are over the last `windowS`
+   * simulated seconds; lost trips and requests are for the current day; empty
+   * miles and rides per cab per day since the start. Counts are for the
+   * simulated cabs and riders (multiply by sampleN for the full fleet).
+   */
+  live(windowS = 1800) {
+    const from = this.now - windowS;
+    while (this.liveFrom < this.waitAt.length && this.waitAt[this.liveFrom] < from) this.liveFrom++;
+    const recent = Float64Array.from(this.waits.slice(this.liveFrom)).sort();
+    const avg = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : NaN;
+    const p90 = recent.length ? recent[Math.min(recent.length - 1, Math.floor(recent.length * 0.9))] : NaN;
+    const day = this.dayOfWeek();
+    let lostToday = 0;
+    let requestsToday = 0;
+    for (let h = 0; h < 24; h++) { lostToday += this.hourLost[day * 24 + h]; requestsToday += this.hourRequests[day * 24 + h]; }
+    let miles = 0;
+    let empty = 0;
+    let rides = 0;
+    const byState = [0, 0, 0, 0, 0, 0, 0];
+    for (let c = 0; c < this.nCabs; c++) {
+      miles += this.miles[c]; empty += this.emptyMiles[c]; rides += this.rides[c];
+      byState[this.state[c]]++;
+    }
+    const days = this.now / 86400;
+    return {
+      now: this.now,
+      day,
+      avgWaitMin: avg / 60,
+      worst10WaitMin: p90 / 60,
+      pickupsInWindow: recent.length,
+      lostToday,
+      requestsToday,
+      emptyMilesPct: miles > 0 ? (100 * empty) / miles : NaN,
+      ridesPerCabPerDay: days >= 1 / 24 ? rides / this.nCabs / days : NaN,
+      cabsByState: byState,
+      chargerQueue: this.chargeQueue.reduce((s, q) => s + q.length, 0),
+      cleaningQueue: this.cleanQueue.reduce((s, q) => s + q.length, 0),
+      waitingRiders: this.waiting.length,
     };
   }
 

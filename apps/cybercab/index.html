@@ -12,27 +12,82 @@
 
   <header class="panel top">
     <h1>Cybercab sim <span>Austin · Travis County</span></h1>
-    <div class="buttons" role="group" aria-label="Shade hexagons by">
-      <button data-metric="people" class="on">People</button>
-      <button data-metric="jobs">Jobs</button>
-      <button data-metric="cars">Cars</button>
-      <button data-metric="none">Off</button>
+    <div class="row">
+      <span class="label">Hexagons</span>
+      <div class="buttons small" role="group" aria-label="Shade hexagons by">
+        <button data-metric="people">People</button>
+        <button data-metric="jobs">Jobs</button>
+        <button data-metric="cars">Cars</button>
+        <button data-metric="none" class="on">Off</button>
+      </div>
     </div>
   </header>
 
-  <aside class="panel legend" id="legend">
-    <div class="ramp-title" id="ramp-title">People per hexagon</div>
-    <div class="ramp"></div>
-    <div class="ramp-labels"><span id="ramp-lo">0</span><span id="ramp-hi"></span></div>
-    <div class="key"><span class="hub-dot"></span>Charging and cleaning hub</div>
-    <div class="key"><span class="county-line"></span>Travis County</div>
+  <aside class="panel side" id="side">
+    <button class="side-toggle" id="side-toggle" aria-expanded="true">Numbers ▾</button>
+    <div class="side-body" id="side-body">
+      <div class="clock" id="clock">Mon 00:00</div>
+      <div class="sampling" id="sampling" hidden></div>
+      <dl class="live" id="live">
+        <dt>Average wait (last 30 min)</dt><dd id="n-avg">–</dd>
+        <dt>Worst 10% wait</dt><dd id="n-p90">–</dd>
+        <dt>Lost trips today</dt><dd id="n-lost">–</dd>
+        <dt>Empty miles</dt><dd id="n-empty">–</dd>
+        <dt>Rides per cab per day</dt><dd id="n-rides">–</dd>
+        <dt>Charger queue</dt><dd id="n-queue">–</dd>
+        <dt>Cleaning queue</dt><dd id="n-clean">–</dd>
+      </dl>
+      <h2>Cabs</h2>
+      <ul class="legend-list" id="legend-list"></ul>
+      <div class="key"><span class="hub-dot"></span>Hub (charging and cleaning)</div>
+      <div class="key"><span class="county-line"></span>Travis County</div>
+      <div class="key ramp-key" id="ramp-key" hidden>
+        <div class="ramp-title" id="ramp-title"></div>
+        <div class="ramp"></div>
+        <div class="ramp-labels"><span>0</span><span id="ramp-hi"></span></div>
+      </div>
+    </div>
   </aside>
 
-  <div class="panel status" id="status">Loading…</div>
+  <section class="panel controls" id="controls">
+    <div class="ctrl-row">
+      <button id="play" class="big" aria-label="Play">▶</button>
+      <div class="buttons" role="group" aria-label="Speed" id="speeds">
+        <button data-speed="1">1×</button>
+        <button data-speed="10">10×</button>
+        <button data-speed="60" class="on">60×</button>
+        <button data-speed="300">300×</button>
+        <button data-speed="1200">1200×</button>
+      </div>
+      <button id="reset" class="plain">Reset</button>
+      <button id="more" class="plain" aria-expanded="false">Settings</button>
+    </div>
+    <div class="ctrl-row sliders">
+      <label class="slider">
+        <span>Fleet: <b id="fleet-label">1%</b> <small id="fleet-cabs"></small></span>
+        <input id="fleet" type="range" min="0" max="9" step="1" value="3" />
+      </label>
+      <label class="slider">
+        <span>Cab share of car trips: <b id="share-label">10%</b></span>
+        <input id="share" type="range" min="0" max="100" step="1" value="10" disabled />
+      </label>
+      <label class="check"><input id="linked" type="checkbox" checked /> Linked to fleet</label>
+    </div>
+    <div class="ctrl-row settings" id="settings" hidden>
+      <label class="field">Seed <input id="seed" type="number" min="0" max="999999999" step="1" value="2026" /></label>
+      <label class="field">Start day
+        <select id="day">
+          <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option>
+          <option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option>
+          <option value="6">Sunday</option>
+        </select>
+      </label>
+      <span class="hint">Changing fleet, share, seed or day restarts the day.</span>
+    </div>
+    <div class="foot">Unofficial simulation. Numbers are estimates. · © OpenStreetMap contributors · US Census</div>
+  </section>
 
-  <footer class="panel foot">
-    Unofficial simulation. Numbers are estimates. · © OpenStreetMap contributors · US Census
-  </footer>
+  <div class="status" id="status">Loading…</div>
 
   <script type="module" src="./src/main.ts"></script>
 </body>

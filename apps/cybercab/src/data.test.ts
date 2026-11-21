@@ -24,7 +24,7 @@ describe('CSV parsing', () => {
   it('loads both hubs with bay counts', () => {
     const hubs = parseHubs(readFileSync(data('hubs.csv'), 'utf8'));
     expect(hubs.map((h) => h.name)).toEqual(['Ben White hub', 'Ridgepoint hub']);
-    expect(hubs.every((h) => h.chargeBays === 24 && h.cleanBays === 4)).toBe(true);
+    expect(hubs.every((h) => h.chargeBays === 24 && h.cleanBays === 8)).toBe(true);
   });
 });
 
