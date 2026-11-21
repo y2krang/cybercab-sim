@@ -17,6 +17,12 @@ nightlife_radius_m,800,metres,estimate,Not in spec: area counted as 6th Street /
 dispatch_interval_s,5,seconds,estimate,Spec section 8
 red_finish_window_min,3,minutes,estimate,Spec section 8 (red cabs finishing within 3 min can take the next rider)
 sample_above_cabs,20000,cabs,estimate,Spec section 8 (1-in-N sampling above this)
+event_cab_share,0.15,share of attendees,estimate,Spec section 7 (15% of attendees use a Cybercab; setting)
+event_arrive_window_min,120,minutes,estimate,Spec section 7 (arrivals spread evenly over the 2 hours before start)
+event_leave_fast_share,0.6,share of leavers,estimate,Spec section 7 (60% leave within 45 min of the end)
+event_leave_fast_min,45,minutes,estimate,Spec section 7
+event_leave_slow_min,75,minutes,estimate,Spec section 7 (the rest over the next 75 min)
+event_leave_patience_min,60,minutes,estimate,"Not stated in spec section 6; read from check A7 (""picked up within 60 min""): people leaving an event wait in the pickup queue up to 60 min (owner to confirm)"
 rebalancing_on,1,1 = on,estimate,Spec R6 (default on)
 rebalance_interval_s,60,seconds,estimate,Spec section 8
 rebalance_horizon_min,30,minutes,estimate,Spec section 8 (forecast the next 30 min)

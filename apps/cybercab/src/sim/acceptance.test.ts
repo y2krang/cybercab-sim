@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { loadWorldFromDisk } from './load-node';
 import { RIDER, Simulation } from './sim';
+import { scheduleEvent } from './events';
 
 const on = !!process.env.ACCEPT;
 const DOWNTOWN: [number, number] = [30.2682, -97.7429];
@@ -47,7 +48,42 @@ function suburbanWorst10(sim: Simulation) {
   };
 }
 
-describe.runIf(on)('acceptance (full days)', () => {
+describe.runIf(on && process.env.CHECK === 'A7')('acceptance A7', () => {
+  it('A7 event test: UT football end, 1% fleet, rebalancing on: 90% of leaving riders picked up', () => {
+    const world = loadWorldFromDisk();
+    const p = world.eventPresets.find((e) => e.name === 'UT football')!;
+    const ev = { id: 0, name: p.name, place: p.place, lat: p.lat, lng: p.lng, hex: p.hex, people: p.people,
+      ...scheduleEvent(p, 5, 0) };
+    const run = (rebalancing: boolean) => {
+      const sim = new Simulation(world, { seed: 2026, fleetPct: 1, startDay: 5, rebalancing });
+      sim.setEvents([ev]);
+      sim.runUntil(ev.endT + 2 * 3600 + 15 * 60);
+      const R = sim.riders;
+      let n = 0; let picked = 0; const waits: number[] = [];
+      for (let r = 0; r < R.count; r++) {
+        if (R.eventId[r] !== 0 || !R.eventLeave[r]) continue;
+        n++;
+        if (!Number.isNaN(R.pickup[r])) { picked++; waits.push(R.pickup[r] - R.reqTime[r]); }
+      }
+      waits.sort((a, b) => a - b);
+      return { n, picked, share: picked / n, median: waits[Math.floor(waits.length / 2)] / 60,
+        p90: waits[Math.floor(waits.length * 0.9)] / 60, moved: sim.summary().rebalanceMoves };
+    };
+    const off = run(false);
+    const onR = run(true);
+    const lines = [
+      `A7 event test: Saturday, UT football ends 18:00, 1% fleet, leaving riders (they wait up to ${world.demand.get('event_leave_patience_min')!.value} min)`,
+      `Rebalancing off: ${off.picked} of ${off.n} picked up (${(100 * off.share).toFixed(1)}%), median wait ${off.median.toFixed(1)} min, worst 10% ${off.p90.toFixed(1)} min`,
+      `Rebalancing on:  ${onR.picked} of ${onR.n} picked up (${(100 * onR.share).toFixed(1)}%), median wait ${onR.median.toFixed(1)} min, worst 10% ${onR.p90.toFixed(1)} min, cabs moved ${onR.moved}`,
+      'Needs: 90% picked up with rebalancing on',
+    ];
+    if (process.env.REPORT_FILE) writeFileSync(process.env.REPORT_FILE, lines.join('\n') + '\n');
+    console.log(lines.join('\n'));
+    expect(onR.share).toBeGreaterThanOrEqual(0.9);
+  }, 1_800_000);
+});
+
+describe.runIf(on && process.env.CHECK !== 'A7')('acceptance (full days)', () => {
   it('A6 drought test: rebalancing cuts suburban worst-10% wait, weekday 16:00-19:00, by at least 30%', () => {
     const world = loadWorldFromDisk();
     const fleetPct = Number(process.env.FLEET ?? 1);

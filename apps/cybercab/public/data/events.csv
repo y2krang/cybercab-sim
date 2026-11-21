@@ -1,0 +1,7 @@
+name,place,lat,lng,people,day,start,end,label,source
+UT football,DKR Stadium,30.2837,-97.7325,100000,Sat,14:30,18:00,estimate,Spec section 7
+Austin FC,Q2 Stadium,30.3878,-97.7197,20700,Sat,19:30,21:30,estimate,Spec section 7
+Concert,Moody Center,30.2817,-97.7319,15000,any,20:00,23:00,estimate,Spec section 7
+F1 race day,Circuit of the Americas,30.1328,-97.6411,120000,Sun,14:00,16:00,estimate,Spec section 7
+ACL Festival day,Zilker Park,30.2669,-97.7729,75000,any,12:00,22:00,estimate,Spec section 7
+SXSW evening,Downtown,30.2672,-97.7431,50000,any,18:00,02:00,estimate,Spec section 7 (ends 02:00 the next morning)

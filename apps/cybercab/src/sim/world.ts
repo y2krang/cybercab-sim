@@ -3,6 +3,7 @@
 import { parseCsv, parseHexes, parseHubs, parseParams, type Param } from '../data';
 import { NO_ROAD, TravelTable, slowdownFactor } from '../travel';
 import { Alias } from './rng';
+import { parseEvents, type EventPreset } from './events';
 
 export type Params = Map<string, Param>;
 
@@ -23,6 +24,8 @@ export interface WorldInput {
   hubSitesCsv: string;
   /** road_shapes.bin.gz unzipped (optional: without it dots use hex centres). */
   roadShapes?: ArrayBuffer;
+  /** events.csv (optional). */
+  eventsCsv?: string;
 }
 
 export interface FixedHub {
@@ -98,6 +101,8 @@ export class World {
   readonly nightShare: Float64Array;
   /** Hexes where anyone lives or works (and there's a road). */
   readonly hasDemand: Uint8Array;
+  /** Preset events (events.csv), each with the hex it's in. */
+  readonly eventPresets: (EventPreset & { hex: number })[];
 
   private readonly nearbyCache = new Map<number, Map<number, Int32Array>>();
   private readonly gravityCache = new Map<number, Float64Array>();
@@ -187,6 +192,9 @@ export class World {
     night.forEach((h) => { ns[h] = this.jobs[h] + this.people[h] + 1; });
     this.nightShare = norm(ns);
     this.hasDemand = Uint8Array.from({ length: n }, (_, i) => (this.people[i] + this.jobs[i] > 0 ? 1 : 0));
+    this.eventPresets = input.eventsCsv
+      ? parseEvents(input.eventsCsv).map((e) => ({ ...e, hex: this.nearestRoadHex(e.lat, e.lng) }))
+      : [];
   }
 
   /** The hex with roads whose centre is closest to a point. */

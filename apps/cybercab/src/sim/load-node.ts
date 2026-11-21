@@ -30,6 +30,7 @@ export function loadWorldFromDisk(): World {
     hubsCsv: text('hubs.csv'),
     hubSitesCsv: text('hub_sites.csv'),
     roadShapes: bytes('road_shapes.bin.gz'),
+    eventsCsv: text('events.csv'),
   });
   return cached;
 }

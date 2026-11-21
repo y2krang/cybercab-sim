@@ -13,6 +13,8 @@ import { rampColour, type Metric, METRIC_LABEL } from './shading';
 import { LEGEND_ORDER, STATE_COLOURS, STATE_LABELS, cssColour } from './colours';
 import type { FromWorker, HubInfo, LiveNumbers, RunSettings, ToWorker } from './sim/protocol';
 import { clockText, fleetCabsText, FLEET_STEPS, pctText } from './format';
+import { initEvents } from './events-ui';
+import type { ScheduledEvent } from './sim/protocol';
 
 const BASE = import.meta.env.BASE_URL;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -65,13 +67,21 @@ let dotsChanged = true;
 
 const worker = new Worker(new URL('./sim/worker.ts', import.meta.url), { type: 'module' });
 const send = (m: ToWorker) => worker.postMessage(m);
+const eventsUi = initEvents(map, (events) => send({ type: 'events', events }));
+let eventMarkers: ScheduledEvent[] = [];
 
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
   const m = e.data;
   switch (m.type) {
     case 'ready':
       status.textContent = `Simulation loaded in ${m.loadSeconds.toFixed(1)} s`;
+      eventsUi.setPresets(m.presets);
       send({ type: 'start', settings });
+      break;
+    case 'eventsScheduled':
+      eventMarkers = m.events;
+      eventsUi.setScheduled(m.events, startDay);
+      buildStaticLayers();
       break;
     case 'started':
       sampleN = m.sampleN;
@@ -119,6 +129,10 @@ function hexTooltip({ object, layer }: PickingInfo): string | null {
     const h = object as HubInfo;
     return `${h.name}\n${h.chargeBays} charge bays · ${h.cleanBays} cleaning bays`;
   }
+  if (layer?.id === 'events') {
+    const e = object as ScheduledEvent;
+    return `${e.name} · ${e.place}\n${e.people.toLocaleString()} people\n${clockText(startDay, e.startT)}–${clockText(startDay, e.endT).slice(4)}`;
+  }
   return null;
 }
 
@@ -142,6 +156,18 @@ function buildStaticLayers() {
       getRadius: (d) => (d.auto ? 6 : 9), radiusUnits: 'pixels',
       getFillColor: [11, 13, 16, 255], getLineColor: [255, 255, 255, 255],
       lineWidthMinPixels: 2.5, stroked: true, pickable: true,
+    }),
+    new ScatterplotLayer<ScheduledEvent>({
+      id: 'events', data: eventMarkers, getPosition: (d) => [d.lng, d.lat],
+      getRadius: 13, radiusUnits: 'pixels', filled: false, stroked: true,
+      getLineColor: [249, 115, 22, 255], lineWidthMinPixels: 4, pickable: true,
+    }),
+    new TextLayer<ScheduledEvent>({
+      id: 'event-names', data: eventMarkers, getPosition: (d) => [d.lng, d.lat],
+      getText: (d) => `${d.name} ${clockText(startDay, d.startT).slice(4)}–${clockText(startDay, d.endT).slice(4)}`,
+      getSize: 13, getColor: [253, 186, 116, 255], getPixelOffset: [0, 24],
+      outlineWidth: 3, outlineColor: [11, 13, 16, 255], fontSettings: { sdf: true },
+      fontFamily: 'system-ui, sans-serif', fontWeight: 700,
     }),
     new TextLayer<HubInfo>({
       id: 'hub-names', data: hubs.filter((h) => !h.auto), getPosition: (d) => [d.lng, d.lat],

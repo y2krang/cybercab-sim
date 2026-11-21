@@ -6,6 +6,7 @@ import { Rng, sampleCdf } from './rng';
 import { num, type World } from './world';
 import { placeHubs } from './hubs';
 import { MinCostFlow } from './mcf';
+import { eventRates, peoplePerRequest, type SimEvent } from './events';
 
 /** Where a cab is in a hub visit (states charging / cleaning). */
 export const PHASE = { driving: 0, queued: 1, service: 2 } as const;
@@ -57,12 +58,16 @@ class Riders {
   cab = new Int32Array(1024);
   pickup = new Float64Array(1024);
   status = new Uint8Array(1024);
+  /** Event id for event riders (-1 = none); eventLeave 1 = leaving the event. */
+  eventId = new Int32Array(1024);
+  eventLeave = new Uint8Array(1024);
 
-  add(t: number, o: number, d: number, people: number, group: number): number {
+  add(t: number, o: number, d: number, people: number, group: number, eventId = -1, leave = 0): number {
     if (this.count === this.reqTime.length) this.grow();
     const i = this.count++;
     this.reqTime[i] = t; this.origin[i] = o; this.dest[i] = d; this.people[i] = people;
     this.group[i] = group; this.cab[i] = -1; this.pickup[i] = NaN; this.status[i] = RIDER.waiting;
+    this.eventId[i] = eventId; this.eventLeave[i] = leave;
     return i;
   }
 
@@ -75,6 +80,7 @@ class Riders {
     this.reqTime = g(this.reqTime); this.origin = g(this.origin); this.dest = g(this.dest);
     this.people = g(this.people); this.group = g(this.group); this.cab = g(this.cab);
     this.pickup = g(this.pickup); this.status = g(this.status);
+    this.eventId = g(this.eventId); this.eventLeave = g(this.eventLeave);
   }
 }
 
@@ -603,6 +609,31 @@ export class Simulation {
       if (!od) continue;
       this.addRequest(times[i], od[0], od[1]);
     }
+
+    // Events (spec section 7).
+    if (this.events.length) {
+      const perReq = peoplePerRequest(d);
+      const mid = (from + to) / 2;
+      for (const e of this.events) {
+        const r = eventRates(e, d, mid);
+        if (r.arrive === 0 && r.leave === 0) continue;
+        const ka = this.rng.poisson((r.arrive * span) / perReq / this.sampleN);
+        const kl = this.rng.poisson((r.leave * span) / perReq / this.sampleN);
+        for (let i = 0; i < ka; i++) {
+          this.addRequest(from + this.rng.next() * span, w.peopleAlias.sample(this.rng), e.hex, e.id, 0);
+        }
+        for (let i = 0; i < kl; i++) {
+          this.addRequest(from + this.rng.next() * span, e.hex, w.peopleAlias.sample(this.rng), e.id, 1);
+        }
+      }
+    }
+  }
+
+  /** Events in this run (spec R7). Times are run seconds; may be changed while running. */
+  events: SimEvent[] = [];
+
+  setEvents(events: SimEvent[]) {
+    this.events = events.slice();
   }
 
   private tripFor(hour: number): [number, number] | null {
@@ -633,7 +664,7 @@ export class Simulation {
     return beforeMidnight ? [home, spot] : [spot, home];
   }
 
-  private addRequest(t: number, o: number, dst: number) {
+  private addRequest(t: number, o: number, dst: number, eventId = -1, leave = 0) {
     const w = this.world;
     if (w.travel.base[o * w.n + dst] === NO_ROAD) return;
     const d = w.demand;
@@ -644,15 +675,15 @@ export class Simulation {
     const R = this.riders;
     const slot = this.dayOfWeek(t) * 24 + Math.floor(this.hourOfDay(t));
     if (x < p1 + p2) {
-      this.waiting.push(R.add(t, o, dst, x < p1 ? 1 : 2, -1));
+      this.waiting.push(R.add(t, o, dst, x < p1 ? 1 : 2, -1, eventId, leave));
       this.requests++;
       this.hourRequests[slot]++;
     } else {
       // 3-4 people: two cabs, each with at most 2 people.
       const four = this.rng.next() < num(d, 'party_4_of_3_4');
       const g = this.nextGroup++;
-      this.waiting.push(R.add(t, o, dst, 2, g));
-      this.waiting.push(R.add(t, o, dst, four ? 2 : 1, g));
+      this.waiting.push(R.add(t, o, dst, 2, g, eventId, leave));
+      this.waiting.push(R.add(t, o, dst, four ? 2 : 1, g, eventId, leave));
       this.requests += 2;
       this.hourRequests[slot] += 2;
     }
@@ -687,9 +718,11 @@ export class Simulation {
 
     const still: number[] = [];
     const base = w.travel.base;
+    const eventPatienceS = num(w.demand, 'event_leave_patience_min') * 60;
     for (const r of this.waiting) {
       if (R.status[r] !== RIDER.waiting) continue;
-      const deadline = R.reqTime[r] + w.patienceS;
+      // People leaving an event queue for longer (event_leave_patience_min).
+      const deadline = R.reqTime[r] + (R.eventLeave[r] ? eventPatienceS : w.patienceS);
       if (now > deadline) {
         R.status[r] = RIDER.lost;
         this.lost++;
@@ -751,6 +784,7 @@ export class Simulation {
     const p2 = num(d, 'party_2');
     const p34 = num(d, 'party_3_4');
     const cabsPerRequest = 1 + p34 / (p1 + p2 + p34);
+    const perReq = peoplePerRequest(d);
     const hw = num(d, 'purpose_home_work');
     const ho = num(d, 'purpose_home_other');
     const oo = num(d, 'purpose_other_other');
@@ -770,9 +804,15 @@ export class Simulation {
       const nightBefore = (day === 4 || day === 5) && hour >= 22;
       const nightAfter = (prevDay === 4 || prevDay === 5) && hour < 2;
       const night = nightBefore || nightAfter ? requests * num(d, 'nightlife_extra') : 0;
+      let eventArrive = 0;
+      for (const e of this.events) {
+        const r = eventRates(e, d, t);
+        eventArrive += (r.arrive * slice) / perReq / this.sampleN * cabsPerRequest;
+        out[e.hex] += (r.leave * slice) / perReq / this.sampleN * cabsPerRequest;
+      }
       for (let h = 0; h < n; h++) {
         const share = (hw * commute[h] + ho * (pHome * w.peopleShare[h] + (1 - pHome) * w.jobsShare[h]) + oo * w.jobsShare[h]) / sum;
-        out[h] += requests * share;
+        out[h] += requests * share + eventArrive * w.peopleShare[h];
         if (night) out[h] += night * (nightBefore ? w.peopleShare[h] : w.nightShare[h]);
       }
     }

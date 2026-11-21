@@ -8,5 +8,6 @@ export default defineConfig({
   // Local only: never listen on the network (no firewall prompt).
   server: { host: '127.0.0.1' },
   preview: { host: '127.0.0.1' },
-  test: { environment: 'node', testTimeout: 60_000 },
+  // Test files run one at a time: each loads ~40 MB of data, too much at once on a small PC.
+  test: { environment: 'node', testTimeout: 300_000, hookTimeout: 300_000, fileParallelism: false },
 });

@@ -5,7 +5,8 @@ import { loadWorld } from './load-browser';
 import { PositionTracker } from './positions';
 import { Simulation } from './sim';
 import { num, type World } from './world';
-import type { FromWorker, RunSettings, ToWorker } from './protocol';
+import type { EventDef, FromWorker, RunSettings, ToWorker } from './protocol';
+import { scheduleEvent, type SimEvent } from './events';
 
 // Positions are sent ~30 times a second and drawn as they are (no sliding in
 // between on the page), so every dot is always on its road route.
@@ -24,6 +25,33 @@ let frameNo = 0;
 let realSpeed = 0;
 let dirty = false;      // something changed while paused: send one frame
 let rebalanceOn = true; // switch on the page (R6), kept across restarts
+let eventDefs: EventDef[] = []; // events chosen on the page (R7), kept across restarts
+let scheduled = new Map<string, SimEvent>(); // key -> event placed in this run
+
+/** Place the chosen events in the running day and tell the page where and when. */
+function applyEvents() {
+  if (!sim || !world) return;
+  const w = world;
+  const next = new Map<string, SimEvent>();
+  eventDefs.forEach((def, i) => {
+    // Keep an event's times once placed, so changing the list doesn't move it.
+    const old = scheduled.get(def.key);
+    const times = old ?? scheduleEvent(def, sim!.startDay, sim!.now);
+    const hex = old?.hex ?? w.nearestRoadHex(def.lat, def.lng);
+    next.set(def.key, { id: i, name: def.name, place: def.place, lat: def.lat, lng: def.lng, hex, people: def.people,
+      startT: times.startT, endT: times.endT });
+  });
+  scheduled = next;
+  sim.setEvents([...next.values()]);
+  post({
+    type: 'eventsScheduled',
+    events: eventDefs.map((def) => {
+      const e = next.get(def.key)!;
+      return { key: def.key, name: e.name, place: e.place, lng: w.roadLng[e.hex], lat: w.roadLat[e.hex],
+        people: e.people, startT: e.startT, endT: e.endT };
+    }),
+  });
+}
 
 const post = (m: FromWorker, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(m, transfer);
@@ -44,6 +72,8 @@ function start(settings: RunSettings) {
   });
   tracker = new PositionTracker(world, sim.nCabs, settings.seed);
   clock = 0;
+  scheduled = new Map();
+  applyEvents();
   const w = world;
   post({
     type: 'started',
@@ -102,7 +132,15 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
     if (m.type === 'init') {
       const t0 = performance.now();
       world = await loadWorld(m.base);
-      post({ type: 'ready', registeredVehicles: num(world.area, 'registered_vehicles'), loadSeconds: (performance.now() - t0) / 1000 });
+      post({
+        type: 'ready',
+        registeredVehicles: num(world.area, 'registered_vehicles'),
+        loadSeconds: (performance.now() - t0) / 1000,
+        presets: world.eventPresets.map((e, i) => ({
+          key: `preset-${i}`, name: e.name, place: e.place, lat: e.lat, lng: e.lng, people: e.people,
+          day: e.day, startMin: e.startMin, endMin: e.endMin,
+        })),
+      });
     } else if (m.type === 'start') {
       start(m.settings);
     } else if (m.type === 'play') {
@@ -110,6 +148,10 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       lastReal = performance.now();
     } else if (m.type === 'speed') {
       speed = m.speed;
+    } else if (m.type === 'events') {
+      eventDefs = m.events;
+      applyEvents();
+      dirty = true;
     } else if (m.type === 'rebalance') {
       rebalanceOn = m.on;
       if (sim) sim.rebalanceOn = m.on;

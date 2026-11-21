@@ -49,6 +49,28 @@
     </div>
   </aside>
 
+  <section class="panel events" id="events-panel" hidden>
+    <div class="ev-head"><b>Events</b><button id="events-close" class="plain">Close</button></div>
+    <ul class="event-list" id="event-list"></ul>
+    <button id="event-add" class="plain wide">+ Add an event: tap the map</button>
+    <div class="event-form" id="event-form" hidden>
+      <div class="hint" id="event-place">Tap the map where the event is.</div>
+      <label class="field">Name <input id="ev-name" type="text" value="My event" maxlength="40" /></label>
+      <label class="field">People <input id="ev-people" type="number" min="100" max="500000" step="100" value="20000" /></label>
+      <label class="field">Day
+        <select id="ev-day">
+          <option value="">Today</option><option value="0">Monday</option><option value="1">Tuesday</option>
+          <option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option>
+          <option value="5">Saturday</option><option value="6">Sunday</option>
+        </select>
+      </label>
+      <label class="field">Starts <input id="ev-start" type="time" value="19:00" /></label>
+      <label class="field">Ends <input id="ev-end" type="time" value="22:00" /></label>
+      <div class="ctrl-row"><button id="ev-ok" class="plain" disabled>Add event</button><button id="ev-cancel" class="plain">Cancel</button></div>
+    </div>
+    <p class="hint">15% of people at an event use a Cybercab. They arrive over the 2 hours before it starts and leave over 2 hours after it ends.</p>
+  </section>
+
   <section class="panel controls" id="controls">
     <div class="ctrl-row">
       <button id="play" class="big" aria-label="Play">▶</button>
@@ -61,6 +83,7 @@
       </div>
       <button id="reset" class="plain">Reset</button>
       <button id="rebalance" class="plain toggle on" aria-pressed="true" title="Send empty cabs ahead to areas about to run short">Rebalancing: On</button>
+      <button id="events-btn" class="plain" aria-expanded="false">Events</button>
       <button id="more" class="plain" aria-expanded="false">Settings</button>
     </div>
     <div class="ctrl-row sliders">
