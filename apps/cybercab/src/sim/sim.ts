@@ -5,6 +5,7 @@ import { NO_ROAD } from '../travel';
 import { Rng, sampleCdf } from './rng';
 import { num, type World } from './world';
 import { placeHubs } from './hubs';
+import { MinCostFlow } from './mcf';
 
 /** Where a cab is in a hub visit (states charging / cleaning). */
 export const PHASE = { driving: 0, queued: 1, service: 2 } as const;
@@ -41,6 +42,8 @@ export interface SimOptions {
   cabs?: number;
   /** Auto-place extra hubs (spec section 4). Default: vehicle.csv auto_hubs. */
   autoHubs?: boolean;
+  /** Rebalancing on/off (spec R6). Default: demand.csv rebalancing_on. Can be changed while running. */
+  rebalancing?: boolean;
 }
 
 /** Growable typed-array store for riders (one row per cab request). */
@@ -96,6 +99,7 @@ export interface Summary {
   charges: number;
   cleans: number;
   lowestBatteryPct: number;
+  rebalanceMoves: number;
 }
 
 export class Simulation {
@@ -166,6 +170,9 @@ export class Simulation {
   private readonly parkLeaveMin: number;
   private charges = 0;
   private cleans = 0;
+  /** Rebalancing on/off (spec R6); may be switched while the day runs. */
+  rebalanceOn: boolean;
+  rebalanceMoves = 0;
 
   // Totals
   private requests = 0;
@@ -195,6 +202,7 @@ export class Simulation {
     this.dropoffS = num(v, 'dropoff_time_min') * 60;
     this.kwhPerMile = num(v, 'energy_use');
     this.finishWindowS = num(d, 'red_finish_window_min') * 60;
+    this.rebalanceOn = opts.rebalancing ?? num(d, 'rebalancing_on') === 1;
 
     const N = this.nCabs;
     this.state = new Uint8Array(N);
@@ -296,6 +304,8 @@ export class Simulation {
     if (Math.floor(this.now / 60) !== Math.floor(from / 60)) this.checkWaitingCabs();
     this.generateDemand(from, this.now);
     this.dispatch();
+    const every = num(this.world.demand, 'rebalance_interval_s');
+    if (this.rebalanceOn && Math.floor(this.now / every) !== Math.floor(from / every)) this.rebalance();
   }
 
   runUntil(t: number) {
@@ -356,6 +366,18 @@ export class Simulation {
           this.startPickup(c, nr, h, free);
         } else {
           this.becomeFree(c, h, free);
+        }
+      } else if (st === STATE.rebalance && this.t1[c] <= now) {
+        // Arrived in the area that was short of cabs.
+        const h = this.dest[c];
+        const t = this.t1[c];
+        this.hex[c] = h;
+        const nr = this.nextRider[c];
+        if (nr >= 0) {
+          this.nextRider[c] = -1;
+          this.startPickup(c, nr, h, t);
+        } else {
+          this.becomeFree(c, h, t);
         }
       } else if ((st === STATE.charging || st === STATE.cleaning) && this.t1[c] <= now) {
         if (this.phase[c] === PHASE.driving) arrivals.push(c);
@@ -652,7 +674,9 @@ export class Simulation {
     const lowKwh = num(w.vehicle, 'charge_trigger') * this.batteryKwh;
     const cleanAfter = num(w.vehicle, 'quick_clean_rides') - 1;
     for (let c = 0; c < this.nCabs; c++) {
-      if (this.state[c] === STATE.withRider && this.nextRider[c] < 0 && this.busyUntil[c] <= now + this.finishWindowS
+      const st = this.state[c];
+      // Red cabs finishing within 3 min, and purple cabs arriving within 3 min, can take the next rider.
+      if ((st === STATE.withRider || st === STATE.rebalance) && this.nextRider[c] < 0 && this.busyUntil[c] <= now + this.finishWindowS
         && this.battery[c] >= lowKwh && !this.deepPending[c] && this.ridesSinceClean[c] < cleanAfter) {
         const h = this.dest[c];
         if (this.soonHead[h] < 0) this.soonTouched.push(h);
@@ -709,6 +733,144 @@ export class Simulation {
     this.waiting = still;
   }
 
+  // ---- rebalancing (spec section 8) ---------------------------------------
+
+  /**
+   * Expected cab requests starting in each hex over the next 30 min: the hourly
+   * pattern x where trips start at that time of day (homes and workplaces from
+   * LODES, people and jobs), from the same demand model the sim uses. Events
+   * are added in step 8.
+   */
+  forecast(): Float64Array {
+    const w = this.world;
+    const d = w.demand;
+    const n = w.n;
+    const out = new Float64Array(n);
+    const horizon = num(d, 'rebalance_horizon_min') * 60;
+    const p1 = num(d, 'party_1');
+    const p2 = num(d, 'party_2');
+    const p34 = num(d, 'party_3_4');
+    const cabsPerRequest = 1 + p34 / (p1 + p2 + p34);
+    const hw = num(d, 'purpose_home_work');
+    const ho = num(d, 'purpose_home_other');
+    const oo = num(d, 'purpose_other_other');
+    const sum = hw + ho + oo;
+    const slice = 300;
+    for (let s = 0; s < horizon; s += slice) {
+      const t = this.now + s + slice / 2;
+      const day = this.dayOfWeek(t);
+      const hour = this.hourOfDay(t);
+      const weekend = day >= 5;
+      const tpp = num(d, weekend ? 'trips_per_person_weekend' : 'trips_per_person_weekday');
+      const daily = (w.peopleAlias.total * tpp * this.cabShare) / this.sampleN;
+      const requests = (daily * w.hourShare(weekend, hour) * slice / 3600) * cabsPerRequest;
+      const pHome = hour < 12 ? num(d, 'from_home_morning') : hour >= 15 ? num(d, 'from_home_evening') : 0.5;
+      const commute = hour < 12 ? w.flowHomeShare : w.flowWorkShare;
+      const prevDay = (day + 6) % 7;
+      const nightBefore = (day === 4 || day === 5) && hour >= 22;
+      const nightAfter = (prevDay === 4 || prevDay === 5) && hour < 2;
+      const night = nightBefore || nightAfter ? requests * num(d, 'nightlife_extra') : 0;
+      for (let h = 0; h < n; h++) {
+        const share = (hw * commute[h] + ho * (pHome * w.peopleShare[h] + (1 - pHome) * w.jobsShare[h]) + oo * w.jobsShare[h]) / sum;
+        out[h] += requests * share;
+        if (night) out[h] += night * (nightBefore ? w.peopleShare[h] : w.nightShare[h]);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Every 60 s: target cabs per hex = forecast x 1.2 (at least 1 where anyone
+   * lives or works). Move blue cabs from hexes with spare cabs to hexes short of
+   * cabs with the least total empty driving (min-cost flow). Never move a cab
+   * more than 15 min, or one below 30% battery.
+   */
+  rebalance() {
+    const w = this.world;
+    const d = w.demand;
+    const n = w.n;
+    const now = this.now;
+    const horizon = num(d, 'rebalance_horizon_min') * 60;
+    const spare = num(d, 'rebalance_spare');
+    const maxS = num(d, 'rebalance_max_empty_min') * 60;
+    const minKwh = num(d, 'rebalance_min_battery') * this.batteryKwh;
+    const K = num(d, 'rebalance_sources_per_area');
+    const f = w.factorAt(this.startDay, now);
+    const fc = this.forecast();
+
+    // Cabs available in each hex soon: waiting (blue / dim blue), on their way
+    // there (purple), or dropping off there within the forecast window (red).
+    const supply = new Int32Array(n);
+    const movable = new Int32Array(n);
+    for (let c = 0; c < this.nCabs; c++) {
+      const st = this.state[c];
+      if (st === STATE.idle || st === STATE.parked) {
+        supply[this.hex[c]]++;
+        if (this.battery[c] >= minKwh) movable[this.hex[c]]++;
+      } else if (st === STATE.rebalance) {
+        supply[this.dest[c]]++;
+      } else if (st === STATE.withRider && this.nextRider[c] < 0 && this.busyUntil[c] <= now + horizon) {
+        supply[this.dest[c]]++;
+      }
+    }
+    const surplus = new Int32Array(n);
+    const deficit: number[] = [];
+    const need = new Int32Array(n);
+    for (let h = 0; h < n; h++) {
+      const target = w.hasDemand[h] ? Math.max(1, Math.round(spare * fc[h])) : 0;
+      const diff = supply[h] - target;
+      if (diff > 0) surplus[h] = Math.min(diff, movable[h]);
+      else if (diff < 0) { need[h] = -diff; deficit.push(h); }
+    }
+    if (!deficit.length) return;
+
+    // Build the flow network: source -> spare hexes -> short hexes -> sink.
+    const srcIndex = new Map<number, number>();
+    const sinkIndex = new Map<number, number>();
+    const pairs: [number, number, number][] = []; // spare hex, short hex, seconds
+    for (const j of deficit) {
+      const list = w.nearby(j, maxS);
+      let found = 0;
+      for (let k = 0; k < list.length && found < K; k++) {
+        const i = list[k];
+        if (surplus[i] <= 0 || i === j) continue;
+        const secs = w.travel.seconds(i, j, f);
+        if (secs > maxS) continue;
+        pairs.push([i, j, secs]);
+        found++;
+      }
+    }
+    if (!pairs.length) return;
+    for (const [i, j] of pairs) {
+      if (!srcIndex.has(i)) srcIndex.set(i, 2 + srcIndex.size);
+      if (!sinkIndex.has(j)) sinkIndex.set(j, -1);
+    }
+    let next = 2 + srcIndex.size;
+    for (const j of sinkIndex.keys()) sinkIndex.set(j, next++);
+    const g = new MinCostFlow(next);
+    for (const [i, node] of srcIndex) g.addEdge(0, node, surplus[i], 0);
+    for (const [j, node] of sinkIndex) g.addEdge(node, 1, need[j], 0);
+    const edges = pairs.map(([i, j, secs]) => g.addEdge(srcIndex.get(i)!, sinkIndex.get(j)!, Infinity, secs));
+    g.run(0, 1);
+
+    // Send cabs: for each pair with flow, move that many blue cabs (battery >= 30%).
+    pairs.forEach(([i, j], k) => {
+      let count = g.flowOn(edges[k]);
+      for (let c = this.idleHead[i]; c >= 0 && count > 0;) {
+        const nextCab = this.idleNext[c];
+        if (this.battery[c] >= minKwh) {
+          this.removeIdle(c);
+          this.state[c] = STATE.rebalance;
+          const arrive = this.drive(c, i, j, now, false);
+          this.busyUntil[c] = arrive;
+          this.rebalanceMoves++;
+          count--;
+        }
+        c = nextCab;
+      }
+    });
+  }
+
   // ---- results -----------------------------------------------------------
 
   summary(): Summary {
@@ -749,6 +911,7 @@ export class Simulation {
       charges: this.charges,
       cleans: this.cleans,
       lowestBatteryPct: 100 * lowest,
+      rebalanceMoves: this.rebalanceMoves,
     };
   }
 

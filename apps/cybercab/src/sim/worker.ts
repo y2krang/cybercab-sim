@@ -7,8 +7,10 @@ import { Simulation } from './sim';
 import { num, type World } from './world';
 import type { FromWorker, RunSettings, ToWorker } from './protocol';
 
-const FRAME_MS = 66;
-const LIVE_EVERY = 4; // frames
+// Positions are sent ~30 times a second and drawn as they are (no sliding in
+// between on the page), so every dot is always on its road route.
+const FRAME_MS = 33;
+const LIVE_EVERY = 8; // frames
 const MAX_TICKS_PER_FRAME = 400;
 
 let world: World | null = null;
@@ -21,6 +23,7 @@ let lastReal = performance.now();
 let frameNo = 0;
 let realSpeed = 0;
 let dirty = false;      // something changed while paused: send one frame
+let rebalanceOn = true; // switch on the page (R6), kept across restarts
 
 const post = (m: FromWorker, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(m, transfer);
@@ -37,6 +40,7 @@ function start(settings: RunSettings) {
     cabShare: settings.cabShare ?? undefined,
     startDay: settings.startDay,
     sampleN,
+    rebalancing: rebalanceOn,
   });
   tracker = new PositionTracker(world, sim.nCabs, settings.seed);
   clock = 0;
@@ -106,6 +110,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       lastReal = performance.now();
     } else if (m.type === 'speed') {
       speed = m.speed;
+    } else if (m.type === 'rebalance') {
+      rebalanceOn = m.on;
+      if (sim) sim.rebalanceOn = m.on;
     }
   } catch (err) {
     post({ type: 'error', message: err instanceof Error ? err.message : String(err) });

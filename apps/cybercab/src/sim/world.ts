@@ -90,7 +90,16 @@ export class World {
   readonly linkOffset: Uint32Array | null;
   readonly linkPoints: Float32Array | null;
 
-  private readonly nearbyCache = new Map<number, Int32Array>();
+  /** Share of each hex in people, jobs, and LODES homes / workplaces (each sums to 1). */
+  readonly peopleShare: Float64Array;
+  readonly jobsShare: Float64Array;
+  readonly flowHomeShare: Float64Array;
+  readonly flowWorkShare: Float64Array;
+  readonly nightShare: Float64Array;
+  /** Hexes where anyone lives or works (and there's a road). */
+  readonly hasDemand: Uint8Array;
+
+  private readonly nearbyCache = new Map<number, Map<number, Int32Array>>();
   private readonly gravityCache = new Map<number, Float64Array>();
 
   constructor(input: WorldInput) {
@@ -165,6 +174,19 @@ export class World {
 
     this.nightlifeHexes = Int32Array.from(night);
     this.nightlifeAlias = new Alias(night.map((i) => this.jobs[i] + this.people[i] + 1));
+
+    const norm = (a: Float64Array) => { const s = a.reduce((x, y) => x + y, 0) || 1; return a.map((x) => x / s); };
+    const fh = new Float64Array(n);
+    const fw = new Float64Array(n);
+    for (let i = 0; i < home.length; i++) { fh[home[i]] += w[i]; fw[work[i]] += w[i]; }
+    this.peopleShare = norm(Float64Array.from(this.people));
+    this.jobsShare = norm(Float64Array.from(this.jobs));
+    this.flowHomeShare = norm(fh);
+    this.flowWorkShare = norm(fw);
+    const ns = new Float64Array(n);
+    night.forEach((h) => { ns[h] = this.jobs[h] + this.people[h] + 1; });
+    this.nightShare = norm(ns);
+    this.hasDemand = Uint8Array.from({ length: n }, (_, i) => (this.people[i] + this.jobs[i] > 0 ? 1 : 0));
   }
 
   /** The hex with roads whose centre is closest to a point. */
@@ -196,11 +218,12 @@ export class World {
    * Hexes a cab could come from to reach hex `to` within the patience time at
    * free flow, nearest first (by time from that hex to `to`).
    */
-  nearby(to: number): Int32Array {
-    let list = this.nearbyCache.get(to);
+  nearby(to: number, limit = this.patienceS): Int32Array {
+    let byTo = this.nearbyCache.get(limit);
+    if (!byTo) { byTo = new Map(); this.nearbyCache.set(limit, byTo); }
+    let list = byTo.get(to);
     if (list) return list;
     const n = this.n;
-    const limit = this.patienceS;
     const cand: number[] = [];
     for (let c = 0; c < n; c++) {
       const b = this.travel.base[c * n + to];
@@ -208,7 +231,7 @@ export class World {
     }
     cand.sort((x, y) => this.travel.base[x * n + to] - this.travel.base[y * n + to] || x - y);
     list = Int32Array.from(cand);
-    this.nearbyCache.set(to, list);
+    byTo.set(to, list);
     return list;
   }
 

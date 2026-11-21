@@ -12,7 +12,8 @@ export type ToWorker =
   | { type: 'init'; base: string }
   | { type: 'start'; settings: RunSettings }
   | { type: 'play'; on: boolean }
-  | { type: 'speed'; speed: number };
+  | { type: 'speed'; speed: number }
+  | { type: 'rebalance'; on: boolean };
 
 export interface HubInfo {
   name: string;

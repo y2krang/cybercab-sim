@@ -53,15 +53,13 @@ let playing = false;
 
 const settings: RunSettings = { seed: 2026, fleetPct: 1, cabShare: null, startDay: 1 };
 
-// Cab dots: the worker sends positions ~15 times a second; the page slides the
-// dots smoothly between the last two updates.
-let prevPos: Float32Array = new Float32Array(0);
-let nextPos: Float32Array = new Float32Array(0);
+// Cab dots: the worker sends positions ~30 times a second, already on the road
+// route. They're drawn as sent: sliding between updates in a straight line cut
+// corners at high speeds (owner, 2026-11-21).
 let shownPos: Float32Array = new Float32Array(0);
 let colours = new Uint8Array(0);
-let frameAt = 0;
 let cabCount = 0;
-const FRAME_MS = 66;
+let dotsChanged = true;
 
 // ---- worker ---------------------------------------------------------------
 
@@ -86,18 +84,13 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       s.hidden = m.sampleN === 1;
       s.textContent = `Showing 1 in ${m.sampleN} cabs (${m.cabs.toLocaleString()} drawn); totals scaled up`;
       cabCount = m.cabs;
-      prevPos = nextPos = shownPos = new Float32Array(0);
+      shownPos = new Float32Array(0);
       buildStaticLayers();
+      dotsChanged = true;
       break;
     case 'frame':
-      if (m.positions.length !== nextPos.length) {
-        prevPos = m.positions.slice();
-        shownPos = m.positions.slice();
-      } else {
-        prevPos = shownPos.slice();
-      }
-      nextPos = m.positions;
-      frameAt = performance.now();
+      shownPos = m.positions;
+      dotsChanged = true;
       colours = new Uint8Array(m.states.length * 4);
       for (let i = 0; i < m.states.length; i++) {
         const c = STATE_COLOURS[m.states[i]];
@@ -157,6 +150,7 @@ function buildStaticLayers() {
       fontFamily: 'system-ui, sans-serif', fontWeight: 600,
     }),
   ];
+  dotsChanged = true;
   $('ramp-key').hidden = metric === 'none';
   if (metric !== 'none') {
     $('ramp-title').textContent = `${METRIC_LABEL[metric]} per hexagon`;
@@ -166,12 +160,10 @@ function buildStaticLayers() {
 
 // Insert cab dots below the hub markers so hubs stay visible.
 function drawFrame() {
-  const a = Math.min(1, (performance.now() - frameAt) / FRAME_MS);
-  const n = nextPos.length;
-  if (shownPos.length !== n) shownPos = new Float32Array(n);
-  if (prevPos.length === n) {
-    for (let i = 0; i < n; i++) shownPos[i] = prevPos[i] + (nextPos[i] - prevPos[i]) * a;
-  }
+  requestAnimationFrame(drawFrame);
+  if (!dotsChanged) return;
+  dotsChanged = false;
+  const n = shownPos.length;
   const cabs = new ScatterplotLayer({
     id: 'cabs',
     data: { length: n / 2, attributes: {
@@ -183,7 +175,6 @@ function drawFrame() {
   });
   overlay.setProps({ getTooltip: hexTooltip, layers: [staticLayers[0], staticLayers[1], cabs, ...staticLayers.slice(2)].filter(Boolean) });
   frames++;
-  requestAnimationFrame(drawFrame);
 }
 
 // ---- live panel and legend --------------------------------------------------
@@ -235,6 +226,16 @@ document.querySelectorAll<HTMLButtonElement>('#speeds button').forEach((b) => {
 });
 
 $('reset').addEventListener('click', restart);
+
+let rebalanceOn = true;
+$('rebalance').addEventListener('click', () => {
+  rebalanceOn = !rebalanceOn;
+  const b = $('rebalance');
+  b.classList.toggle('on', rebalanceOn);
+  b.setAttribute('aria-pressed', String(rebalanceOn));
+  b.textContent = `Rebalancing: ${rebalanceOn ? 'On' : 'Off'}`;
+  send({ type: 'rebalance', on: rebalanceOn });
+});
 
 $('more').addEventListener('click', () => {
   const s = $('settings');

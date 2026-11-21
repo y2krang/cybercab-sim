@@ -17,3 +17,10 @@ nightlife_radius_m,800,metres,estimate,Not in spec: area counted as 6th Street /
 dispatch_interval_s,5,seconds,estimate,Spec section 8
 red_finish_window_min,3,minutes,estimate,Spec section 8 (red cabs finishing within 3 min can take the next rider)
 sample_above_cabs,20000,cabs,estimate,Spec section 8 (1-in-N sampling above this)
+rebalancing_on,1,1 = on,estimate,Spec R6 (default on)
+rebalance_interval_s,60,seconds,estimate,Spec section 8
+rebalance_horizon_min,30,minutes,estimate,Spec section 8 (forecast the next 30 min)
+rebalance_spare,1.2,x forecast,estimate,Spec section 8 (target cabs = forecast x 1.2)
+rebalance_max_empty_min,15,minutes,estimate,Spec section 8 (never move a cab more than 15 min empty)
+rebalance_min_battery,0.3,share of battery,estimate,Spec section 8 (never move a cab below 30%)
+rebalance_sources_per_area,15,hexes,estimate,Not in spec: solver looks at the 15 nearest areas with spare cabs for each short area (keeps it fast)
