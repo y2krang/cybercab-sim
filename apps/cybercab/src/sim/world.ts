@@ -21,6 +21,8 @@ export interface WorldInput {
   areaCsv: string;
   hubsCsv: string;
   hubSitesCsv: string;
+  /** road_shapes.bin.gz unzipped (optional: without it dots use hex centres). */
+  roadShapes?: ArrayBuffer;
 }
 
 export interface FixedHub {
@@ -81,6 +83,12 @@ export class World {
   readonly hubs: FixedHub[];
   /** Hexes with a major road junction (hub_sites.csv), for auto-placed hubs. */
   readonly hubSites: number[];
+  /** Where each hex meets the road network (dots stand and start here). */
+  readonly roadLng: Float64Array;
+  readonly roadLat: Float64Array;
+  /** Road shape from hex i to its neighbour in slot k: points linkOffset[i*6+k] .. linkOffset[i*6+k+1]-1. */
+  readonly linkOffset: Uint32Array | null;
+  readonly linkPoints: Float32Array | null;
 
   private readonly nearbyCache = new Map<number, Int32Array>();
   private readonly gravityCache = new Map<number, Float64Array>();
@@ -136,6 +144,24 @@ export class World {
     this.hubSites = parseCsv(input.hubSitesCsv)
       .map((r) => pos.get(r.h3))
       .filter((i): i is number => i !== undefined && this.hasRoad[i] === 1);
+
+    if (input.roadShapes) {
+      const buf = input.roadShapes;
+      const count = new Uint32Array(buf, 0, 1)[0];
+      if (count !== n) throw new Error('road_shapes.bin does not match hexes.csv');
+      const anchors = new Float32Array(buf, 4, n * 2);
+      this.roadLng = Float64Array.from({ length: n }, (_, i) => anchors[2 * i]);
+      this.roadLat = Float64Array.from({ length: n }, (_, i) => anchors[2 * i + 1]);
+      const offStart = 4 + n * 8;
+      this.linkOffset = new Uint32Array(buf, offStart, n * 6 + 1);
+      const ptsStart = offStart + (n * 6 + 1) * 4;
+      this.linkPoints = new Float32Array(buf, ptsStart, this.linkOffset[n * 6] * 2);
+    } else {
+      this.roadLng = Float64Array.from(this.lng);
+      this.roadLat = Float64Array.from(this.lat);
+      this.linkOffset = null;
+      this.linkPoints = null;
+    }
 
     this.nightlifeHexes = Int32Array.from(night);
     this.nightlifeAlias = new Alias(night.map((i) => this.jobs[i] + this.people[i] + 1));

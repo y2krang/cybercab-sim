@@ -31,61 +31,31 @@ import h3
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
-from scipy.spatial import cKDTree
 
 from common import OUT, WORK, param, read_params
+from roadgraph import MPH_TO_MS, SNAP_LIMIT_M, build_graph, load_roads, snap_hexes
 
-MPH_TO_MS = 0.44704
 NO_ROAD = 65535
-SNAP_LIMIT_M = 1500       # hexes further than this from a usable road have no road
 ACCESS_MPH = 15           # centre-of-hex to road: parking-lot speed
 ACCESS_DETOUR = 1.3       # straight line to road distance
 SAME_HEX_MIN_S = 60
 CHUNK = 32
 
 
-def project(lon, lat):
-    k = np.cos(np.radians(30.3))
-    return np.column_stack([lon * 111320.0 * k, lat * 110540.0])
-
-
 def main():
     t0 = time.time()
     speeds = read_params("road_speeds.csv")
     slow = read_params("slowdown.csv")
-    with np.load(WORK / "roads.npz") as z:
-        r = {k: z[k] for k in z.files}
-    classes = [str(c) for c in r["classes"]]
+    r = load_roads(WORK / "roads.npz")
     n_nodes = len(r["node_lon"])
-
-    mph = np.minimum(r["edge_mph"], param(speeds, "max_speed")) * param(speeds, "junction_factor")
-    t_edge = np.maximum(r["edge_length_m"] / (mph * MPH_TO_MS), 0.1)
-    share_by_class = np.array([param(slow, f"share_{c}") for c in classes])
-    share = share_by_class[r["edge_class"]]
-
-    # One edge per (from, to): keep the quickest.
-    u, v = r["edge_u"].astype(np.int64), r["edge_v"].astype(np.int64)
-    order = np.lexsort((t_edge, u * n_nodes + v))
-    key = (u * n_nodes + v)[order]
-    first = np.ones(len(key), bool)
-    first[1:] = key[1:] != key[:-1]
-    sel = order[first]
-    G = csr_matrix((t_edge[sel], (u[sel], v[sel])), shape=(n_nodes, n_nodes))
-    S = csr_matrix((share[sel], (u[sel], v[sel])), shape=(n_nodes, n_nodes))
+    G, S, _ = build_graph(r, speeds, slow)
 
     # Hex centres snap to the nearest junction on a street (not motorways or service roads).
     with open(OUT / "hexes.csv", newline="") as f:
         hexes = list(csv.DictReader(f))
     ids = [h["h3"] for h in hexes]
     n = len(ids)
-    street_classes = [classes.index(c) for c in
-                      ("trunk", "primary", "secondary", "tertiary", "residential", "unclassified", "living_street")]
-    ok_edge = np.isin(r["edge_class"], street_classes)
-    street_nodes = np.unique(np.concatenate([r["edge_u"][ok_edge], r["edge_v"][ok_edge]]))
-    tree = cKDTree(project(r["node_lon"][street_nodes], r["node_lat"][street_nodes]))
-    centre = project(np.array([float(h["lng"]) for h in hexes]), np.array([float(h["lat"]) for h in hexes]))
-    snap_d, snap_i = tree.query(centre)
-    hex_node = street_nodes[snap_i]
+    hex_node, snap_d = snap_hexes(r, [float(h["lng"]) for h in hexes], [float(h["lat"]) for h in hexes])
     has_road = snap_d <= SNAP_LIMIT_M
     access = snap_d * ACCESS_DETOUR / (ACCESS_MPH * MPH_TO_MS)
     print(f"{n} hexes; {int((~has_road).sum())} with no road within {SNAP_LIMIT_M} m")

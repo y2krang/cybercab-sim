@@ -49,7 +49,7 @@ function start(settings: RunSettings) {
     sampleN,
     cabShare: sim.cabShare,
     hubs: Array.from(sim.hubHex, (h, k) => ({
-      name: sim!.hubName[k], lng: w.lng[h], lat: w.lat[h],
+      name: sim!.hubName[k], lng: w.roadLng[h], lat: w.roadLat[h],
       chargeBays: sim!.chargeBays[k], cleanBays: sim!.cleanBays[k], auto: sim!.hubAuto[k],
     })),
   });

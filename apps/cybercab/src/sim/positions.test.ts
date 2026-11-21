@@ -22,6 +22,43 @@ describe('page helpers', () => {
   });
 });
 
+describe('road shapes', () => {
+  it('each link runs from one hex road point to its neighbour road point', () => {
+    const w = loadWorldFromDisk();
+    expect(w.linkOffset).not.toBeNull();
+    let checked = 0;
+    for (let i = 0; i < w.n; i += 7) {
+      for (let k = 0; k < 6; k++) {
+        const a = w.linkOffset![i * 6 + k];
+        const b = w.linkOffset![i * 6 + k + 1];
+        if (b - a < 2) continue;
+        const j = w.neighbours[i * 6 + k];
+        expect(w.linkPoints![2 * a]).toBeCloseTo(w.roadLng[i], 5);
+        expect(w.linkPoints![2 * a + 1]).toBeCloseTo(w.roadLat[i], 5);
+        expect(w.linkPoints![2 * (b - 1)]).toBeCloseTo(w.roadLng[j], 5);
+        expect(w.linkPoints![2 * (b - 1) + 1]).toBeCloseTo(w.roadLat[j], 5);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
+  });
+
+  it('a drawn route follows roads: starts and ends at road points, with road bends in between', () => {
+    const w = loadWorldFromDisk();
+    const tracker = new PositionTracker(w, 1, 1);
+    const pick = (lat: number, lng: number) => w.nearestRoadHex(lat, lng);
+    const a = pick(30.2682, -97.7429); // downtown
+    const b = pick(30.4021, -97.7253); // the Domain
+    const line = tracker.route(a, b);
+    expect(line.x[0]).toBeCloseTo(w.roadLng[a], 5);
+    expect(line.y[0]).toBeCloseTo(w.roadLat[a], 5);
+    expect(line.x[line.x.length - 1]).toBeCloseTo(w.roadLng[b], 5);
+    expect(line.y[line.y.length - 1]).toBeCloseTo(w.roadLat[b], 5);
+    // Far more points than hexes passed: it bends with the roads.
+    expect(line.x.length).toBeGreaterThan(40);
+  });
+});
+
 describe('dot positions', () => {
   it('puts every cab inside the Travis County area and moves driving cabs', () => {
     const world = loadWorldFromDisk();
